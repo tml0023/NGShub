@@ -1,0 +1,10 @@
+data/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.nextflow/
+.nextflow.log*
+work/
+.DS_Store
+.venv/
