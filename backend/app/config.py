@@ -9,6 +9,23 @@ RUNS_DIR = DATA_DIR / "runs"
 REFERENCES_DIR = Path(
     os.environ.get("NGSWEB_REFERENCES_DIR", DATA_DIR / "references")
 ).resolve()
+KNOWN_SITES_DIR = Path(
+    os.environ.get("NGSWEB_KNOWN_SITES_DIR", DATA_DIR / "known_sites")
+).resolve()
+
+# BQSR needs known-variant sites matched to the reference build. Resolvable
+# only for the references this mapping knows about; a custom-uploaded
+# reference has no known-sites data, so BQSR isn't offered for it.
+KNOWN_SITES_BY_REFERENCE = {
+    "hg38.fa": [
+        KNOWN_SITES_DIR / "hg38" / "dbsnp138.vcf.gz",
+        KNOWN_SITES_DIR / "hg38" / "mills_indels.vcf.gz",
+    ],
+    "hg19.fa": [
+        KNOWN_SITES_DIR / "hg19" / "dbsnp138.vcf.gz",
+        KNOWN_SITES_DIR / "hg19" / "mills_indels.vcf.gz",
+    ],
+}
 PIPELINE_DIR = Path(
     os.environ.get("NGSWEB_PIPELINE_DIR", REPO_ROOT / "pipeline")
 ).resolve()

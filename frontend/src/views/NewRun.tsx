@@ -1,11 +1,20 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { Catalog, Reference, SampleRow } from '../api'
+import type { Catalog, Platform, Reference, SampleRow, SetupStatus } from '../api'
 
 const FASTQ_EXTENSION = /\.(fastq|fq)(\.gz)?$/i
 const READ_SUFFIX = /^(.+?)[._](?:R)?([12])(?:_\d+)?$/i
 
-export function deriveSamples(files: File[]): SampleRow[] {
+export function deriveSamples(files: File[], paired: boolean): SampleRow[] {
+  if (!paired) {
+    // Long-read platforms (e.g. PacBio HiFi): single-end, one file per sample.
+    return files.map((file) => ({
+      sample: file.name.replace(FASTQ_EXTENSION, ''),
+      fastq_1: file.name,
+      fastq_2: null,
+    }))
+  }
+
   const groups = new Map<string, { fastq_1?: string; fastq_2?: string }>()
 
   for (const file of files) {
@@ -32,7 +41,9 @@ export function deriveSamples(files: File[]): SampleRow[] {
 
 export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null)
+  const [platformId, setPlatformId] = useState<string>('')
   const [references, setReferences] = useState<Reference[]>([])
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null)
   const [name, setName] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [samples, setSamples] = useState<SampleRow[]>([])
@@ -40,23 +51,57 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
   const [referenceFile, setReferenceFile] = useState<File | null>(null)
   const [choices, setChoices] = useState<Record<string, string>>({})
   const [callers, setCallers] = useState<string[]>([])
-  const [skipFastqc, setSkipFastqc] = useState(false)
+  const [flags, setFlags] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  function applyDefaults(id: string, platforms: Record<string, Platform>) {
+    const next = platforms[id]
+    if (!next) return
+    setPlatformId(id)
+    setChoices(Object.fromEntries(next.steps.map((step) => [step.id, step.default])))
+    setCallers(next.callers.default)
+    setFlags(Object.fromEntries(next.flags.map((flag) => [flag.id, flag.default])))
+    setFiles([])
+    setSamples([])
+  }
 
   useEffect(() => {
     api.catalog().then((data) => {
       setCatalog(data)
-      setChoices(Object.fromEntries(data.steps.map((step) => [step.id, step.default])))
-      setCallers(data.callers.default)
+      applyDefaults(Object.keys(data.platforms)[0], data.platforms)
     }).catch((err) => setError(err.message))
     api.references().then(setReferences).catch(() => setReferences([]))
+    api.setupStatus().then(setSetupStatus).catch(() => setSetupStatus(null))
   }, [])
+
+  const platform: Platform | null = catalog && platformId ? catalog.platforms[platformId] : null
+
+  function selectPlatform(id: string) {
+    if (catalog) applyDefaults(id, catalog.platforms)
+  }
+
+  // Selected tools that need Docker, so we can warn before submitting rather
+  // than let the run fail minutes later on a container pull.
+  const dockerToolsSelected: string[] = platform
+    ? [
+        ...platform.steps.flatMap((step) =>
+          step.options.filter((o) => o.value === choices[step.id] && o.requires_docker).map((o) => o.label),
+        ),
+        ...platform.callers.options.filter((o) => callers.includes(o.value) && o.requires_docker).map((o) => o.label),
+      ]
+    : []
+  const dockerUnavailable =
+    dockerToolsSelected.length > 0 && setupStatus?.docker.available === false
+
+  const bqsrOn = Boolean(flags.bqsr)
+  const bqsrKnownSitesReady = reference ? setupStatus?.known_sites[reference] : undefined
+  const bqsrBlocked = bqsrOn && !referenceFile && reference !== '' && bqsrKnownSitesReady === false
 
   function onFilesChosen(chosen: FileList | null) {
     const list = chosen ? [...chosen] : []
     setFiles(list)
-    setSamples(deriveSamples(list))
+    setSamples(deriveSamples(list, platform?.paired ?? true))
   }
 
   function toggleCaller(value: string) {
@@ -75,6 +120,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
     event.preventDefault()
     setError(null)
 
+    if (!platform) return
     if (samples.length === 0) return setError('Upload at least one FASTQ file')
     if (!reference && !referenceFile) return setError('Choose or upload a reference genome')
     if (callers.length === 0) return setError('Select at least one variant caller')
@@ -83,7 +129,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
     body.append('name', name || `run-${new Date().toISOString().slice(0, 16)}`)
     body.append(
       'config',
-      JSON.stringify({ ...choices, callers, skip_fastqc: skipFastqc, reference }),
+      JSON.stringify({ platform: platform.id, ...choices, callers, ...flags, reference }),
     )
     body.append('samples', JSON.stringify(samples))
     for (const file of files) body.append('files', file)
@@ -100,7 +146,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
     }
   }
 
-  if (!catalog) return <p className="muted">Loading pipeline options…</p>
+  if (!catalog || !platform) return <p className="muted">Loading pipeline options…</p>
 
   return (
     <form className="stack" onSubmit={submit}>
@@ -114,16 +160,27 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
             placeholder="e.g. trio-exome-batch3"
           />
         </label>
+
+        <label className="field">
+          <span>Sequencing platform</span>
+          <select value={platformId} onChange={(e) => selectPlatform(e.target.value)}>
+            {Object.values(catalog.platforms).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </section>
 
       <section className="card">
         <h2>Input data</h2>
         <p className="muted">
-          {catalog.platform.label} — {catalog.platform.description}
+          {platform.label} — {platform.description}
         </p>
 
         <label className="field">
-          <span>FASTQ files</span>
+          <span>{platform.paired ? 'FASTQ files' : 'FASTQ files (one per sample)'}</span>
           <input
             type="file"
             multiple
@@ -138,7 +195,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
               <tr>
                 <th>Sample</th>
                 <th>Read 1</th>
-                <th>Read 2</th>
+                {platform.paired && <th>Read 2</th>}
               </tr>
             </thead>
             <tbody>
@@ -152,7 +209,11 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
                     />
                   </td>
                   <td className="mono">{row.fastq_1}</td>
-                  <td className="mono">{row.fastq_2 ?? <span className="muted">single-end</span>}</td>
+                  {platform.paired && (
+                    <td className="mono">
+                      {row.fastq_2 ?? <span className="muted">single-end</span>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -185,7 +246,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
         </label>
       </section>
 
-      {catalog.steps.map((step) => (
+      {platform.steps.map((step) => (
         <section className="card" key={step.id}>
           <h2>{step.label}</h2>
           <div className="options">
@@ -201,7 +262,10 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
                   checked={choices[step.id] === option.value}
                   onChange={() => setChoices({ ...choices, [step.id]: option.value })}
                 />
-                <span className="option-label">{option.label}</span>
+                <span className="option-label">
+                  {option.label}
+                  {option.requires_docker && <span className="badge-docker">docker</span>}
+                </span>
                 <span className="option-description">{option.description}</span>
               </label>
             ))}
@@ -210,10 +274,10 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
       ))}
 
       <section className="card">
-        <h2>{catalog.callers.label}</h2>
+        <h2>{platform.callers.label}</h2>
         <p className="muted">Select one or more callers — each produces its own VCF.</p>
         <div className="options">
-          {catalog.callers.options.map((option) => (
+          {platform.callers.options.map((option) => (
             <label
               key={option.value}
               className={`option ${callers.includes(option.value) ? 'selected' : ''}`}
@@ -223,23 +287,53 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
                 checked={callers.includes(option.value)}
                 onChange={() => toggleCaller(option.value)}
               />
-              <span className="option-label">{option.label}</span>
+              <span className="option-label">
+                {option.label}
+                {option.requires_docker && <span className="badge-docker">docker</span>}
+              </span>
               <span className="option-description">{option.description}</span>
             </label>
           ))}
         </div>
       </section>
 
-      <section className="card">
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={skipFastqc}
-            onChange={(e) => setSkipFastqc(e.target.checked)}
-          />
-          <span>Skip FastQC (MultiQC still runs)</span>
-        </label>
-      </section>
+      {platform.flags.length > 0 && (
+        <section className="card">
+          <div className="stack">
+            {platform.flags.map((flag) => (
+              <div key={flag.id}>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={flags[flag.id] ?? flag.default}
+                    onChange={(e) => setFlags({ ...flags, [flag.id]: e.target.checked })}
+                  />
+                  <span>
+                    {flag.label}
+                    {flag.requires_known_sites && (
+                      <span className="badge-docker">hg38 / hg19 only</span>
+                    )}
+                  </span>
+                </label>
+                <p className="muted small flag-description">{flag.description}</p>
+                {flag.id === 'bqsr' && bqsrBlocked && (
+                  <p className="warning small flag-description">
+                    No known-sites resources found for {reference}. Run{' '}
+                    <code>./scripts/setup_references.sh</code> to download them, or turn off BQSR.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {dockerUnavailable && (
+        <p className="warning">
+          {dockerToolsSelected.join(', ')} {dockerToolsSelected.length === 1 ? 'needs' : 'need'} Docker.{' '}
+          {setupStatus?.docker.detail ?? 'Docker is not available.'} Or pick a different option above.
+        </p>
+      )}
 
       {error && <p className="error">{error}</p>}
 

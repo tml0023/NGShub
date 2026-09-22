@@ -76,6 +76,35 @@ process FREEBAYES {
     """
 }
 
+process DEEPVARIANT {
+    tag "${meta.id}"
+    label 'process_high'
+    container "google/deepvariant:1.10.0"
+    publishDir "${params.outdir}/variants/deepvariant", mode: 'copy'
+
+    input:
+    tuple val(meta), path(bam), path(bai)
+    path fasta
+    path fai
+
+    output:
+    tuple val(meta), val('deepvariant'), path("*.vcf.gz"), path("*.vcf.gz.tbi"), emit: vcf
+    path "*.g.vcf.gz", emit: gvcf
+
+    script:
+    def shards = params.deepvariant_num_shards ?: task.cpus
+    """
+    /opt/deepvariant/bin/run_deepvariant \\
+        --model_type=WGS \\
+        --ref=${fasta} \\
+        --reads=${bam} \\
+        --output_vcf=${meta.id}.deepvariant.vcf.gz \\
+        --output_gvcf=${meta.id}.deepvariant.g.vcf.gz \\
+        --num_shards=${shards} \\
+        ${params.deepvariant_args ?: ''}
+    """
+}
+
 process BCFTOOLS_STATS {
     tag "${meta.id}:${caller}"
     label 'process_low'

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS runs (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
     status      TEXT NOT NULL,
+    platform    TEXT NOT NULL DEFAULT 'illumina',
     params      TEXT NOT NULL,
     samples     TEXT NOT NULL,
     created_at  TEXT NOT NULL,
@@ -39,14 +40,18 @@ def connect():
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        # Forward-migrate a database created before the `platform` column existed.
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(runs)")}
+        if "platform" not in columns:
+            conn.execute("ALTER TABLE runs ADD COLUMN platform TEXT NOT NULL DEFAULT 'illumina'")
 
 
-def create_run(run_id: str, name: str, params: dict, samples: list) -> None:
+def create_run(run_id: str, name: str, platform: str, params: dict, samples: list) -> None:
     with connect() as conn:
         conn.execute(
-            "INSERT INTO runs (id, name, status, params, samples, created_at)"
-            " VALUES (?, ?, 'queued', ?, ?, ?)",
-            (run_id, name, json.dumps(params), json.dumps(samples), now()),
+            "INSERT INTO runs (id, name, status, platform, params, samples, created_at)"
+            " VALUES (?, ?, 'queued', ?, ?, ?, ?)",
+            (run_id, name, platform, json.dumps(params), json.dumps(samples), now()),
         )
 
 

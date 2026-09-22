@@ -253,9 +253,16 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
 
       <section className="card">
         <div className="chips">
-          <span className="chip">trimming: {String(run.params.trimmer)}</span>
-          <span className="chip">aligner: {String(run.params.aligner)}</span>
-          <span className="chip">markdup: {String(run.params.markduplicates)}</span>
+          <span className="chip">platform: {run.platform}</span>
+          {run.params.trimmer != null && (
+            <span className="chip">trimming: {String(run.params.trimmer)}</span>
+          )}
+          {run.params.aligner != null && (
+            <span className="chip">aligner: {String(run.params.aligner)}</span>
+          )}
+          {run.params.markduplicates != null && (
+            <span className="chip">markdup: {String(run.params.markduplicates)}</span>
+          )}
           <span className="chip">callers: {String(run.params.callers)}</span>
           <span className="chip">{run.samples.length} sample(s)</span>
         </div>

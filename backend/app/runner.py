@@ -8,6 +8,7 @@ import threading
 from pathlib import Path
 
 from . import db
+from .catalog import PLATFORMS
 from .config import (
     MAX_CONCURRENT_RUNS,
     NEXTFLOW_PROFILE,
@@ -61,13 +62,14 @@ def _execute(run_id: str) -> None:
     directory = run_dir(run_id)
     log_path = directory / "run.log"
     params = run["params"]
+    pipeline_script = PLATFORMS[run["platform"]]["pipeline"]
 
     command = [
         "nextflow",
         "-log",
         str(directory / "nextflow.log"),
         "run",
-        str(PIPELINE_DIR / "main.nf"),
+        str(PIPELINE_DIR / pipeline_script),
         "-profile",
         NEXTFLOW_PROFILE,
         "-ansi-log",

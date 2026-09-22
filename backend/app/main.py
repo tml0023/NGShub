@@ -2,6 +2,7 @@ import gzip
 import json
 import re
 import shutil
+import subprocess
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,8 +13,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, runner
-from .catalog import CATALOG, VALID
-from .config import CORS_ORIGINS, REFERENCES_DIR, REPO_ROOT, RUNS_DIR
+from .catalog import PLATFORMS, VALID
+from .config import CORS_ORIGINS, KNOWN_SITES_BY_REFERENCE, REFERENCES_DIR, REPO_ROOT, RUNS_DIR
+
+DOCKER_HELP_URL = "https://www.docker.com/products/docker-desktop/"
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 FASTQ_SUFFIXES = (".fastq", ".fq", ".fastq.gz", ".fq.gz")
@@ -66,7 +69,7 @@ def health():
 
 @app.get("/api/catalog")
 def get_catalog():
-    return CATALOG
+    return {"platforms": PLATFORMS}
 
 
 @app.get("/api/references")
@@ -76,6 +79,45 @@ def get_references():
         if path.suffix.lower() in (".fa", ".fasta", ".fna") and path.is_file():
             references.append({"name": path.name, "size": path.stat().st_size})
     return references
+
+
+def _docker_status() -> dict:
+    docker_path = shutil.which("docker")
+    if not docker_path:
+        return {
+            "available": False,
+            "detail": "Docker isn't installed. Run ./scripts/setup_docker.sh, "
+            f"or see {DOCKER_HELP_URL}.",
+        }
+    try:
+        result = subprocess.run(
+            ["docker", "info"], capture_output=True, timeout=5, text=True
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return {"available": False, "detail": f"Docker check failed: {exc}"}
+    if result.returncode != 0:
+        return {
+            "available": False,
+            "detail": "Docker is installed but not running. Open Docker Desktop "
+            "and wait for it to finish starting.",
+        }
+    return {"available": True, "detail": None}
+
+
+@app.get("/api/setup-status")
+def get_setup_status():
+    references = {
+        name: (REFERENCES_DIR / name).is_file() for name in KNOWN_SITES_BY_REFERENCE
+    }
+    known_sites = {
+        name: all(p.is_file() for p in paths)
+        for name, paths in KNOWN_SITES_BY_REFERENCE.items()
+    }
+    return {
+        "docker": _docker_status(),
+        "references": references,
+        "known_sites": known_sites,
+    }
 
 
 @app.post("/api/runs", status_code=201)
@@ -95,13 +137,20 @@ async def create_run(
     if not isinstance(sample_rows, list) or not sample_rows:
         raise HTTPException(400, "At least one sample is required")
 
-    for key in ("trimmer", "aligner", "markduplicates"):
+    platform = cfg.get("platform")
+    if platform not in PLATFORMS:
+        raise HTTPException(400, f"Invalid platform: {platform!r}. Available: {sorted(PLATFORMS)}")
+    platform_def = PLATFORMS[platform]
+    platform_valid = VALID[platform]
+
+    for step in platform_def["steps"]:
+        key = step["id"]
         value = cfg.get(key)
-        if value not in VALID[key]:
+        if value not in platform_valid[key]:
             raise HTTPException(400, f"Invalid {key}: {value!r}")
 
     callers = cfg.get("callers") or []
-    if not callers or not set(callers).issubset(VALID["callers"]):
+    if not callers or not set(callers).issubset(platform_valid["callers"]):
         raise HTTPException(400, f"Invalid callers: {callers!r}")
 
     run_id = uuid.uuid4().hex[:12]
@@ -134,21 +183,46 @@ async def create_run(
         if not reference_path.is_file():
             raise HTTPException(400, f"Unknown reference genome: {ref_name}")
 
-    samplesheet_rows = ["sample,fastq_1,fastq_2"]
+    known_sites: list[Path] = []
+    if platform == "illumina" and cfg.get("bqsr"):
+        known_sites = KNOWN_SITES_BY_REFERENCE.get(ref_name, [])
+        if reference_file is not None or not known_sites:
+            available = ", ".join(sorted(KNOWN_SITES_BY_REFERENCE))
+            raise HTTPException(
+                400,
+                "BQSR needs known-variant sites matched to the reference genome; "
+                f"available for: {available}. Pick one of those, or turn off BQSR.",
+            )
+        missing = [str(p) for p in known_sites if not p.is_file()]
+        if missing:
+            raise HTTPException(500, f"Known-sites files missing on server: {missing}")
+
     normalised = []
-    for row in sample_rows:
-        sample = safe_name(str(row.get("sample", "")), "sample name")
-        read1 = safe_name(str(row.get("fastq_1", "")), "fastq_1")
-        if read1 not in stored:
-            raise HTTPException(400, f"{read1} was not uploaded")
-        read2_value = row.get("fastq_2")
-        read2 = safe_name(str(read2_value), "fastq_2") if read2_value else ""
-        if read2 and read2 not in stored:
-            raise HTTPException(400, f"{read2} was not uploaded")
-        samplesheet_rows.append(
-            f"{sample},{stored[read1]},{stored[read2] if read2 else ''}"
-        )
-        normalised.append({"sample": sample, "fastq_1": read1, "fastq_2": read2 or None})
+    if platform_def["paired"]:
+        samplesheet_rows = ["sample,fastq_1,fastq_2"]
+        for row in sample_rows:
+            sample = safe_name(str(row.get("sample", "")), "sample name")
+            read1 = safe_name(str(row.get("fastq_1", "")), "fastq_1")
+            if read1 not in stored:
+                raise HTTPException(400, f"{read1} was not uploaded")
+            read2_value = row.get("fastq_2")
+            read2 = safe_name(str(read2_value), "fastq_2") if read2_value else ""
+            if read2 and read2 not in stored:
+                raise HTTPException(400, f"{read2} was not uploaded")
+            samplesheet_rows.append(
+                f"{sample},{stored[read1]},{stored[read2] if read2 else ''}"
+            )
+            normalised.append({"sample": sample, "fastq_1": read1, "fastq_2": read2 or None})
+    else:
+        # Single-end (e.g. PacBio HiFi): one read file per sample, no pairing.
+        samplesheet_rows = ["sample,fastq"]
+        for row in sample_rows:
+            sample = safe_name(str(row.get("sample", "")), "sample name")
+            read1 = safe_name(str(row.get("fastq_1", "")), "fastq_1")
+            if read1 not in stored:
+                raise HTTPException(400, f"{read1} was not uploaded")
+            samplesheet_rows.append(f"{sample},{stored[read1]}")
+            normalised.append({"sample": sample, "fastq_1": read1, "fastq_2": None})
 
     samplesheet = directory / "samplesheet.csv"
     samplesheet.write_text("\n".join(samplesheet_rows) + "\n")
@@ -157,16 +231,19 @@ async def create_run(
         "input": str(samplesheet),
         "fasta": str(reference_path.resolve()),
         "outdir": str(directory / "results"),
-        "trimmer": cfg["trimmer"],
-        "aligner": cfg["aligner"],
-        "markduplicates": cfg["markduplicates"],
         "callers": ",".join(callers),
-        "skip_fastqc": bool(cfg.get("skip_fastqc", False)),
     }
+    for step in platform_def["steps"]:
+        params[step["id"]] = cfg[step["id"]]
+    for flag in platform_def["flags"]:
+        params[flag["id"]] = bool(cfg.get(flag["id"], flag["default"]))
+    if known_sites:
+        params["bqsr"] = True
+        params["known_sites"] = ",".join(str(p) for p in known_sites)
     if cfg.get("keep_work"):
         params["keep_work"] = True
 
-    db.create_run(run_id, name.strip() or run_id, params, normalised)
+    db.create_run(run_id, name.strip() or run_id, platform, params, normalised)
     runner.write_params(run_id, params)
     runner.submit(run_id)
 
@@ -240,8 +317,8 @@ def get_variants(
     sample: str | None = Query(None),
     limit: int = Query(200, ge=1, le=5000),
 ):
-    require_run(run_id)
-    if caller not in VALID["callers"]:
+    run = require_run(run_id)
+    if caller not in VALID[run["platform"]]["callers"]:
         raise HTTPException(400, f"Unknown caller: {caller}")
 
     directory = runner.run_dir(run_id) / "results" / "variants" / caller

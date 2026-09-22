@@ -2,6 +2,7 @@ export interface Option {
   value: string
   label: string
   description: string
+  requires_docker?: boolean
 }
 
 export interface Step {
@@ -11,16 +12,29 @@ export interface Step {
   options: Option[]
 }
 
-export interface Catalog {
-  platform: { id: string; label: string; description: string }
+export interface Platform {
+  id: string
+  label: string
+  description: string
+  paired: boolean
   steps: Step[]
   callers: { id: string; label: string; multiple: boolean; default: string[]; options: Option[] }
-  flags: { id: string; label: string; default: boolean; description: string }[]
+  flags: { id: string; label: string; default: boolean; description: string; requires_known_sites?: boolean }[]
+}
+
+export interface Catalog {
+  platforms: Record<string, Platform>
 }
 
 export interface Reference {
   name: string
   size: number
+}
+
+export interface SetupStatus {
+  docker: { available: boolean; detail: string | null }
+  references: Record<string, boolean>
+  known_sites: Record<string, boolean>
 }
 
 export interface SampleRow {
@@ -41,6 +55,7 @@ export interface Run {
   id: string
   name: string
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  platform: string
   params: Record<string, string | boolean>
   samples: SampleRow[]
   created_at: string
@@ -85,6 +100,7 @@ async function parse<T>(response: Response): Promise<T> {
 export const api = {
   catalog: () => fetch('/api/catalog').then(parse<Catalog>),
   references: () => fetch('/api/references').then(parse<Reference[]>),
+  setupStatus: () => fetch('/api/setup-status').then(parse<SetupStatus>),
   runs: () => fetch('/api/runs').then(parse<Run[]>),
   run: (id: string) => fetch(`/api/runs/${id}`).then(parse<Run>),
   createRun: (body: FormData) =>
