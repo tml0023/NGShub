@@ -56,4 +56,8 @@ Setup complete.
   conda activate ${ENV_NAME}
   ./scripts/dev.sh
 
+Optional, only if you need them:
+  ./scripts/setup_docker.sh      # Docker Desktop, for DragMap/DeepVariant/pbmarkdup/Clair3
+  ./scripts/setup_references.sh  # hg38/hg19 genomes + BQSR known-sites (~9 GB)
+
 EOF
