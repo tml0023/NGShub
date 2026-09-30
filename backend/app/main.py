@@ -91,7 +91,7 @@ def _docker_status() -> dict:
         }
     try:
         result = subprocess.run(
-            ["docker", "info"], capture_output=True, timeout=5, text=True
+            ["docker", "info"], capture_output=True, timeout=20, text=True
         )
     except (subprocess.TimeoutExpired, OSError) as exc:
         return {"available": False, "detail": f"Docker check failed: {exc}"}

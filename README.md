@@ -50,9 +50,29 @@ comparison, not alignment position — unlike Illumina's post-alignment dedup.
 | Stage | Options |
 | --- | --- |
 | Read QC | NanoPlot (long-read QC; FastQC isn't built for this) + MultiQC |
-| Pre-processing | `pbmarkdup`, or none (the typical default — HiFi library prep makes PCR duplication far less common) |
+| Pre-processing | `pbmarkdup` (run with `--rmdup`, so duplicates are actually removed — without it the tool only marks them, and a FASTQ has nothing for the aligner to honor), or none (the typical default — HiFi library prep makes PCR duplication far less common) |
 | Alignment | `pbmm2` (PacBio's official minimap2 wrapper, HiFi-tuned presets), `minimap2` directly |
 | Variant calling | `DeepVariant` (`--model_type=PACBIO`, most benchmarked for HiFi germline calling), `Clair3` — one or more |
+
+### Oxford Nanopore (long read) — `pipeline/ont/main.nf`
+
+Single-end, like PacBio. Unlike HiFi, raw ONT reads are noisier (~99% for
+current R10.4.1 chemistry with super-accuracy basecalling), so this workflow
+has a quality/length filtering stage that PacBio's doesn't. Alignment has one
+option on purpose: `minimap2` (`-x map-ont`) is the field standard, and a
+second choice would just be there for symmetry.
+
+| Stage | Options |
+| --- | --- |
+| Read QC | NanoPlot + MultiQC |
+| Filtering | `chopper` (Q≥10, ≥500 bp by default — `--chopper_min_quality` / `--chopper_min_length`), or none |
+| Alignment | `minimap2` (`-x map-ont`) |
+| Pre-processing | none (the typical default — ONT libraries are usually PCR-free), or `samtools markdup` |
+| Variant calling | `Clair3` (`--platform=ont`, R10.4.1 SUP model; the most benchmarked ONT caller), `DeepVariant` (`--model_type=ONT_R104`) — one or more |
+
+The bundled Clair3 model targets R10.4.1 flow cells. Older R9.4.1 data needs a
+different model — set `--ont_clair3_model` (see the model names in the
+`hkubal/clair3` image under `/opt/models/`).
 
 ### Containerized tools
 
@@ -63,7 +83,9 @@ packages pull in TensorFlow builds that don't reliably resolve. All four work
 the same way they do in production pipelines like nf-core/sarek — via Docker.
 Selecting any of them requires Docker Desktop running locally and
 `-profile docker` (see [Using containerized tools](#using-containerized-tools));
-every other tool resolves through conda and needs nothing extra.
+every other tool resolves through conda and needs nothing extra. Both long-read
+platforms have *only* containerized callers, so they need Docker for any run
+that produces a VCF.
 
 Reference indices are cached in `~/.ngs-web/reference_cache` and shared across
 runs; conda environments are cached in `~/.ngs-web/conda`.
@@ -190,7 +212,7 @@ bcftools and GATK emit separate SNVs. Raw caller output is published unchanged
 
 ## Running a pipeline without the web app
 
-Both workflows are standalone Nextflow pipelines and usable on their own.
+All three workflows are standalone Nextflow pipelines and usable on their own.
 
 **Illumina:**
 
@@ -232,6 +254,25 @@ sample,fastq
 sample1,/data/sample1.hifi_reads.fastq.gz
 ```
 
+**Oxford Nanopore:**
+
+```bash
+cd pipeline
+nextflow run ont/main.nf -profile docker \
+  --input samplesheet.csv \
+  --fasta /path/to/GRCh38.fa \
+  --outdir results \
+  --trimmer chopper \
+  --markduplicates none \
+  --callers clair3
+```
+
+Same single-column samplesheet as PacBio. Run these from `pipeline/` (or pass
+`-c pipeline/nextflow.config`): Nextflow only finds `nextflow.config` next to
+the script or in the directory you launch from, and `ont/` and `pacbio/` have
+none of their own — from anywhere else they run with no conda, no profiles,
+and no defaults. The web app passes it explicitly.
+
 Each workflow validates its own `--aligner`/`--markduplicates`/`--callers`
 values and will error clearly if you pass one meant for the other platform —
 there's no shared default, since the two share few of the same values.
@@ -243,6 +284,8 @@ pipeline/main.nf         Illumina workflow
 pipeline/modules/        Illumina processes
 pipeline/pacbio/main.nf  PacBio HiFi workflow
 pipeline/pacbio/modules/ PacBio-specific processes (reuses generic ones from pipeline/modules/)
+pipeline/ont/main.nf     Oxford Nanopore workflow
+pipeline/ont/modules/    ONT-specific processes (reuses generic ones, incl. NanoPlot, from pipeline/modules/)
 pipeline/nextflow.config Shared: profiles, resource limits, conda/docker config
 backend/app/              FastAPI service: catalog, run submission, job runner, results
 frontend/src/             React UI: platform + run builder, run list, live progress, VCF browser
@@ -292,6 +335,17 @@ nextflow run pacbio/main.nf -profile docker \
   --input samplesheet.csv --fasta reference.fa \
   --markduplicates pbmarkdup --callers clair3
 ```
+
+The web app switches to the `docker` profile by itself whenever a selected
+tool needs a container, so `NGSWEB_NEXTFLOW_PROFILE` only matters for CLI runs
+or for forcing a different profile.
+
+**Keep the machine awake on a laptop.** macOS sleep freezes Docker's VM while
+the container's clock keeps counting, so a run looks hung (0% CPU, "process
+hasn't exited") and then fails hours later. `caffeinate -i -s <command>` blocks
+idle sleep, but only on AC power — it can't stop a lid-close sleep on battery.
+For long DeepVariant or Clair3 runs, stay plugged in with the lid open (or use
+clamshell mode with a display attached).
 
 Docker Desktop's default VM memory allocation (often ~4 GB) is tight for
 DeepVariant even on small regions — increase it in Docker Desktop's settings

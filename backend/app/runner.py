@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 
 from . import db
-from .catalog import PLATFORMS
+from .catalog import PLATFORMS, needs_docker
 from .config import (
     MAX_CONCURRENT_RUNS,
     NEXTFLOW_PROFILE,
@@ -63,15 +63,27 @@ def _execute(run_id: str) -> None:
     log_path = directory / "run.log"
     params = run["params"]
     pipeline_script = PLATFORMS[run["platform"]]["pipeline"]
+    # The docker profile is conda + docker, so it's a strict superset of the
+    # default: switch to it whenever a selected tool only exists as a container,
+    # instead of letting the run fail at that step with a bare "No such file".
+    profile = NEXTFLOW_PROFILE
+    if profile == "micromamba" and needs_docker(run["platform"], params):
+        profile = "docker"
 
     command = [
         "nextflow",
         "-log",
         str(directory / "nextflow.log"),
+        # Runs launch from the run's own directory, so Nextflow only finds a
+        # nextflow.config next to the script itself. That covers Illumina
+        # (pipeline/main.nf) but not pacbio/ or ont/, which would silently run
+        # with no conda, no profiles, and no defaults. Pass it explicitly.
+        "-c",
+        str(PIPELINE_DIR / "nextflow.config"),
         "run",
         str(PIPELINE_DIR / pipeline_script),
         "-profile",
-        NEXTFLOW_PROFILE,
+        profile,
         "-ansi-log",
         "false",
         "-work-dir",

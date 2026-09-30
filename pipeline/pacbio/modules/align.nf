@@ -47,11 +47,14 @@ process MINIMAP2_INDEX {
     path fasta
 
     output:
-    path "${fasta.baseName}.mmi"
+    path "${fasta.baseName}.hifi.mmi"
 
     script:
+    // minimap2 indices are preset-specific -- suffixed so this doesn't collide
+    // with the ONT pipeline's map-ont index for the same reference, which is
+    // cached in the same directory.
     """
-    minimap2 -x map-hifi -d ${fasta.baseName}.mmi ${fasta}
+    minimap2 -x map-hifi -d ${fasta.baseName}.hifi.mmi ${fasta}
     """
 }
 
