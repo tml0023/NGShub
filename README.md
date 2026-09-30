@@ -1,4 +1,4 @@
-# ngs-web
+# NGShub
 
 A web application for running NGS analysis across platforms: upload reads,
 choose your tools, and get VCFs.
