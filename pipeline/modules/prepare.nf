@@ -2,7 +2,7 @@ process SAMTOOLS_FAIDX {
     tag "${fasta.name}"
     label 'process_low'
     conda "bioconda::samtools=1.24"
-    storeDir "${params.reference_cache}/${fasta.baseName}"
+    storeDir "${params.reference_cache}/${fasta.baseName}-${fasta.size()}"
 
     input:
     path fasta
@@ -22,7 +22,7 @@ process SAMTOOLS_DICT {
     tag "${fasta.name}"
     label 'process_low'
     conda "bioconda::samtools=1.24"
-    storeDir "${params.reference_cache}/${fasta.baseName}"
+    storeDir "${params.reference_cache}/${fasta.baseName}-${fasta.size()}"
 
     input:
     path fasta

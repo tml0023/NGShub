@@ -153,6 +153,10 @@ async def create_run(
     if not callers or not set(callers).issubset(platform_valid["callers"]):
         raise HTTPException(400, f"Invalid callers: {callers!r}")
 
+    sv_callers = cfg.get("sv_callers") or []
+    if not set(sv_callers).issubset(platform_valid["sv_callers"]):
+        raise HTTPException(400, f"Invalid sv_callers: {sv_callers!r}")
+
     run_id = uuid.uuid4().hex[:12]
     directory = runner.run_dir(run_id)
     inputs = directory / "inputs"
@@ -232,6 +236,7 @@ async def create_run(
         "fasta": str(reference_path.resolve()),
         "outdir": str(directory / "results"),
         "callers": ",".join(callers),
+        "sv_callers": ",".join(sv_callers),
     }
     for step in platform_def["steps"]:
         params[step["id"]] = cfg[step["id"]]

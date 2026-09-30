@@ -2,7 +2,7 @@ process MINIMAP2_INDEX {
     tag "${fasta.name}"
     label 'process_high'
     conda "bioconda::minimap2=2.31"
-    storeDir "${params.reference_cache}/${fasta.baseName}"
+    storeDir "${params.reference_cache}/${fasta.baseName}-${fasta.size()}"
 
     input:
     path fasta

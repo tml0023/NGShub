@@ -51,6 +51,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
   const [referenceFile, setReferenceFile] = useState<File | null>(null)
   const [choices, setChoices] = useState<Record<string, string>>({})
   const [callers, setCallers] = useState<string[]>([])
+  const [svCallers, setSvCallers] = useState<string[]>([])
   const [flags, setFlags] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -61,6 +62,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
     setPlatformId(id)
     setChoices(Object.fromEntries(next.steps.map((step) => [step.id, step.default])))
     setCallers(next.callers.default)
+    setSvCallers(next.sv_callers.default)
     setFlags(Object.fromEntries(next.flags.map((flag) => [flag.id, flag.default])))
     setFiles([])
     setSamples([])
@@ -89,6 +91,9 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
           step.options.filter((o) => o.value === choices[step.id] && o.requires_docker).map((o) => o.label),
         ),
         ...platform.callers.options.filter((o) => callers.includes(o.value) && o.requires_docker).map((o) => o.label),
+        ...platform.sv_callers.options
+          .filter((o) => svCallers.includes(o.value) && o.requires_docker)
+          .map((o) => o.label),
       ]
     : []
   const dockerUnavailable =
@@ -106,6 +111,12 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
 
   function toggleCaller(value: string) {
     setCallers((current) =>
+      current.includes(value) ? current.filter((c) => c !== value) : [...current, value],
+    )
+  }
+
+  function toggleSvCaller(value: string) {
+    setSvCallers((current) =>
       current.includes(value) ? current.filter((c) => c !== value) : [...current, value],
     )
   }
@@ -129,7 +140,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
     body.append('name', name || `run-${new Date().toISOString().slice(0, 16)}`)
     body.append(
       'config',
-      JSON.stringify({ platform: platform.id, ...choices, callers, ...flags, reference }),
+      JSON.stringify({ platform: platform.id, ...choices, callers, sv_callers: svCallers, ...flags, reference }),
     )
     body.append('samples', JSON.stringify(samples))
     for (const file of files) body.append('files', file)
@@ -286,6 +297,34 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
                 type="checkbox"
                 checked={callers.includes(option.value)}
                 onChange={() => toggleCaller(option.value)}
+              />
+              <span className="option-label">
+                {option.label}
+                {option.requires_docker && <span className="badge-docker">docker</span>}
+              </span>
+              <span className="option-description">{option.description}</span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>{platform.sv_callers.label}</h2>
+        <p className="muted">
+          Optional — detects larger rearrangements (deletions, insertions, duplications) that
+          SNV/indel callers miss. Output VCFs use breakend notation and are only browsable via
+          the Files tab.
+        </p>
+        <div className="options">
+          {platform.sv_callers.options.map((option) => (
+            <label
+              key={option.value}
+              className={`option ${svCallers.includes(option.value) ? 'selected' : ''}`}
+            >
+              <input
+                type="checkbox"
+                checked={svCallers.includes(option.value)}
+                onChange={() => toggleSvCaller(option.value)}
               />
               <span className="option-label">
                 {option.label}

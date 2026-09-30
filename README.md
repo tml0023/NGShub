@@ -32,6 +32,15 @@ parallel on the same BAM, so you can compare their output on identical input.
 | Alignment | `BWA-MEM2`, `BWA-MEM`, `Bowtie2`, `DragMap` |
 | Pre-processing | `GATK MarkDuplicates`, `samtools markdup`, or none, then optionally **BQSR** |
 | Variant calling | `GATK HaplotypeCaller`, `bcftools call`, `FreeBayes`, `DeepVariant` — one or more |
+| Structural variant calling (optional) | `Manta`, `Delly` — zero or more |
+
+Structural variant calling is opt-in and off by default — it targets larger
+rearrangements (deletions, insertions, duplications) that the SNV/indel
+callers above miss. Delly doesn't reliably call insertions from short reads
+(a well-known limitation of read-pair/split-read evidence at that size), so
+pair it with Manta if insertions matter. SV output uses breakend/SVTYPE VCF
+notation, not the simple REF/ALT the built-in variant browser expects — see
+[Current limitations](#current-limitations).
 
 BQSR (`GATK BaseRecalibrator` + `ApplyBQSR`) needs known-variant sites
 (dbSNP, Mills indels) matched to the reference genome's exact contig naming —
@@ -53,6 +62,7 @@ comparison, not alignment position — unlike Illumina's post-alignment dedup.
 | Pre-processing | `pbmarkdup` (run with `--rmdup`, so duplicates are actually removed — without it the tool only marks them, and a FASTQ has nothing for the aligner to honor), or none (the typical default — HiFi library prep makes PCR duplication far less common) |
 | Alignment | `pbmm2` (PacBio's official minimap2 wrapper, HiFi-tuned presets), `minimap2` directly |
 | Variant calling | `DeepVariant` (`--model_type=PACBIO`, most benchmarked for HiFi germline calling), `Clair3` — one or more |
+| Structural variant calling (optional) | `pbsv` (PacBio's own SV caller, HiFi/CCS-tuned), `Sniffles2` — zero or more |
 
 ### Oxford Nanopore (long read) — `pipeline/ont/main.nf`
 
@@ -69,6 +79,7 @@ second choice would just be there for symmetry.
 | Alignment | `minimap2` (`-x map-ont`) |
 | Pre-processing | none (the typical default — ONT libraries are usually PCR-free), or `samtools markdup` |
 | Variant calling | `Clair3` (`--platform=ont`, R10.4.1 SUP model; the most benchmarked ONT caller), `DeepVariant` (`--model_type=ONT_R104`) — one or more |
+| Structural variant calling (optional) | `Sniffles2`, `cuteSV` (ONT-tuned preset) — zero or more |
 
 The bundled Clair3 model targets R10.4.1 flow cells. Older R9.4.1 data needs a
 different model — set `--ont_clair3_model` (see the model names in the
@@ -76,11 +87,12 @@ different model — set `--ont_clair3_model` (see the model names in the
 
 ### Containerized tools
 
-`DragMap`, `DeepVariant`, `pbmarkdup`, and `Clair3` run in containers rather
-than conda environments — marked with a `DOCKER` badge in the UI. DragMap and
-pbmarkdup have no macOS build at all; DeepVariant's and Clair3's conda
-packages pull in TensorFlow builds that don't reliably resolve. All four work
-the same way they do in production pipelines like nf-core/sarek — via Docker.
+`DragMap`, `DeepVariant`, `pbmarkdup`, `Clair3`, `Manta`, and `pbsv` run in
+containers rather than conda environments — marked with a `DOCKER` badge in
+the UI. DragMap, pbmarkdup, Manta, and pbsv have no macOS build at all (their
+bioconda packages ship Linux-only binaries); DeepVariant's and Clair3's conda
+packages pull in TensorFlow builds that don't reliably resolve. All of these
+work the same way they do in production pipelines like nf-core/sarek — via Docker.
 Selecting any of them requires Docker Desktop running locally and
 `-profile docker` (see [Using containerized tools](#using-containerized-tools));
 every other tool resolves through conda and needs nothing extra. Both long-read
@@ -392,3 +404,7 @@ Per-run resource ceilings live in `pipeline/nextflow.config` (`max_cpus`,
   `KNOWN_SITES_BY_REFERENCE` in `backend/app/config.py`.
 - Work directories are deleted after a successful run, so `-resume` only helps
   for failed runs.
+- No dedicated viewer for structural variants: the built-in variant browser
+  assumes simple REF/ALT records and doesn't understand breakend/SVTYPE VCF
+  notation. SV output is only reachable via the Files tab (download and view
+  in IGV, bcftools, etc.), under `variants/sv/<caller>/` in the run's results.

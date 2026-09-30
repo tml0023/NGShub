@@ -15,6 +15,8 @@ include { SAMTOOLS_FAIDX                 } from '../modules/prepare.nf'
 include { SAMTOOLS_INDEX; SAMTOOLS_STATS } from '../modules/bam.nf'
 include { DEEPVARIANT; CLAIR3            } from './modules/call.nf'
 include { BCFTOOLS_STATS                 } from '../modules/call.nf'
+include { PBSV_CALL; PBSV_INDEX          } from './modules/sv.nf'
+include { SNIFFLES2                      } from '../modules/sv.nf'
 
 def validateChoice(String name, String value, List<String> allowed) {
     if (!allowed.contains(value)) {
@@ -35,6 +37,12 @@ workflow {
         .findAll { String c -> c }
     if (!callers) { error("--callers requires at least one of: deepvariant, clair3") }
     callers.each { String c -> validateChoice('callers', c, ['deepvariant', 'clair3']) }
+
+    def sv_callers = params.sv_callers.toString()
+        .split(',')
+        .collect { String c -> c.trim().toLowerCase() }
+        .findAll { String c -> c }
+    sv_callers.each { String c -> validateChoice('sv_callers', c, ['pbsv', 'sniffles2']) }
 
     def fasta = file(params.fasta, checkIfExists: true)
 
@@ -94,6 +102,17 @@ workflow {
     if (callers.contains('clair3')) {
         CLAIR3(ch_bam_bai, fasta, ch_fai)
         ch_vcf = ch_vcf.mix(CLAIR3.out.vcf)
+    }
+
+    // ---- structural variant calling (optional) -----------------------------
+    if (sv_callers.contains('pbsv')) {
+        PBSV_CALL(ch_bam_bai, fasta, ch_fai)
+        PBSV_INDEX(PBSV_CALL.out.vcf)
+        ch_vcf = ch_vcf.mix(PBSV_INDEX.out.vcf)
+    }
+    if (sv_callers.contains('sniffles2')) {
+        SNIFFLES2(ch_bam_bai, fasta, ch_fai)
+        ch_vcf = ch_vcf.mix(SNIFFLES2.out.vcf)
     }
 
     BCFTOOLS_STATS(ch_vcf)

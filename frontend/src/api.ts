@@ -19,6 +19,7 @@ export interface Platform {
   paired: boolean
   steps: Step[]
   callers: { id: string; label: string; multiple: boolean; default: string[]; options: Option[] }
+  sv_callers: { id: string; label: string; multiple: boolean; default: string[]; options: Option[] }
   flags: { id: string; label: string; default: boolean; description: string; requires_known_sites?: boolean }[]
 }
 

@@ -16,6 +16,8 @@ include { SAMTOOLS_MARKDUP; PUBLISH_BAM               } from '../modules/markdup
 include { SAMTOOLS_INDEX; SAMTOOLS_STATS             } from '../modules/bam.nf'
 include { CLAIR3; DEEPVARIANT                        } from './modules/call.nf'
 include { BCFTOOLS_STATS                             } from '../modules/call.nf'
+include { CUTESV                                     } from './modules/sv.nf'
+include { SNIFFLES2                                  } from '../modules/sv.nf'
 
 def validateChoice(String name, String value, List<String> allowed) {
     if (!allowed.contains(value)) {
@@ -36,6 +38,12 @@ workflow {
         .findAll { String c -> c }
     if (!callers) { error("--callers requires at least one of: clair3, deepvariant") }
     callers.each { String c -> validateChoice('callers', c, ['clair3', 'deepvariant']) }
+
+    def sv_callers = params.sv_callers.toString()
+        .split(',')
+        .collect { String c -> c.trim().toLowerCase() }
+        .findAll { String c -> c }
+    sv_callers.each { String c -> validateChoice('sv_callers', c, ['sniffles2', 'cutesv']) }
 
     def fasta = file(params.fasta, checkIfExists: true)
 
@@ -99,6 +107,16 @@ workflow {
     if (callers.contains('deepvariant')) {
         DEEPVARIANT(ch_bam_bai, fasta, ch_fai)
         ch_vcf = ch_vcf.mix(DEEPVARIANT.out.vcf)
+    }
+
+    // ---- structural variant calling (optional) -----------------------------
+    if (sv_callers.contains('sniffles2')) {
+        SNIFFLES2(ch_bam_bai, fasta, ch_fai)
+        ch_vcf = ch_vcf.mix(SNIFFLES2.out.vcf)
+    }
+    if (sv_callers.contains('cutesv')) {
+        CUTESV(ch_bam_bai, fasta, ch_fai)
+        ch_vcf = ch_vcf.mix(CUTESV.out.vcf)
     }
 
     BCFTOOLS_STATS(ch_vcf)

@@ -113,6 +113,26 @@ PLATFORMS = {
                 },
             ],
         },
+        "sv_callers": {
+            "id": "sv_callers",
+            "label": "Structural variant calling (optional)",
+            "multiple": True,
+            "default": [],
+            "options": [
+                {
+                    "value": "manta",
+                    "label": "Manta",
+                    "description": "Illumina's own SV caller; fast, widely used, integrates well with short-read BAMs. "
+                                    "No native macOS build; runs in a container.",
+                    "requires_docker": True,
+                },
+                {
+                    "value": "delly",
+                    "label": "Delly",
+                    "description": "Read-pair/split-read SV caller; a well-regarded second option to cross-check Manta calls",
+                },
+            ],
+        },
         "flags": [
             {
                 "id": "skip_fastqc",
@@ -197,6 +217,24 @@ PLATFORMS = {
                 },
             ],
         },
+        "sv_callers": {
+            "id": "sv_callers",
+            "label": "Structural variant calling (optional)",
+            "multiple": True,
+            "default": [],
+            "options": [
+                {
+                    "value": "pbsv",
+                    "label": "pbsv",
+                    "description": "PacBio's own SV caller, built and tuned specifically for HiFi/CCS reads",
+                },
+                {
+                    "value": "sniffles2",
+                    "label": "Sniffles2",
+                    "description": "Widely used long-read SV caller, platform-agnostic; a good second option to cross-check pbsv",
+                },
+            ],
+        },
         "flags": [],
     },
     "ont": {
@@ -264,6 +302,24 @@ PLATFORMS = {
                 },
             ],
         },
+        "sv_callers": {
+            "id": "sv_callers",
+            "label": "Structural variant calling (optional)",
+            "multiple": True,
+            "default": [],
+            "options": [
+                {
+                    "value": "sniffles2",
+                    "label": "Sniffles2",
+                    "description": "Widely used long-read SV caller, platform-agnostic; the most established option for ONT",
+                },
+                {
+                    "value": "cutesv",
+                    "label": "cuteSV",
+                    "description": "Long-read SV caller with an ONT-tuned preset; a good second option to cross-check Sniffles2",
+                },
+            ],
+        },
         "flags": [],
     },
 }
@@ -276,6 +332,7 @@ VALID = {
             o["value"] for step in platform["steps"] if step["id"] == "markduplicates" for o in step["options"]
         },
         "callers": {o["value"] for o in platform["callers"]["options"]},
+        "sv_callers": {o["value"] for o in platform["sv_callers"]["options"]},
     }
     for platform_id, platform in PLATFORMS.items()
 }
@@ -293,7 +350,13 @@ def needs_docker(platform_id: str, params: dict) -> bool:
         if any(o["value"] == chosen and o.get("requires_docker") for o in step["options"]):
             return True
     chosen_callers = str(params.get("callers", "")).split(",")
-    return any(
+    if any(
         o["value"] in chosen_callers and o.get("requires_docker")
         for o in platform["callers"]["options"]
+    ):
+        return True
+    chosen_sv_callers = str(params.get("sv_callers", "")).split(",")
+    return any(
+        o["value"] in chosen_sv_callers and o.get("requires_docker")
+        for o in platform["sv_callers"]["options"]
     )

@@ -11,6 +11,7 @@ include { GATK_MARKDUPLICATES; SAMTOOLS_MARKDUP; PUBLISH_BAM } from './modules/m
 include { SAMTOOLS_INDEX; SAMTOOLS_INDEX as SAMTOOLS_INDEX_BQSR; SAMTOOLS_STATS } from './modules/bam.nf'
 include { GATK_BASERECALIBRATOR; GATK_APPLYBQSR } from './modules/bqsr.nf' 
 include { GATK_HAPLOTYPECALLER; BCFTOOLS_CALL; FREEBAYES; DEEPVARIANT; BCFTOOLS_STATS } from './modules/call.nf'
+include { MANTA; DELLY } from './modules/sv.nf'
 
 def validateChoice(String name, String value, List<String> allowed) {
     if (!allowed.contains(value)) {
@@ -35,6 +36,12 @@ workflow {
         .findAll { String c -> c }
     if (!callers) { error("--callers requires at least one of: haplotypecaller, bcftools, freebayes") }
     callers.each { String c -> validateChoice('callers', c, ['haplotypecaller', 'bcftools', 'freebayes', 'deepvariant']) }
+
+    def sv_callers = params.sv_callers.toString()
+        .split(',')
+        .collect { String c -> c.trim().toLowerCase() }
+        .findAll { String c -> c }
+    sv_callers.each { String c -> validateChoice('sv_callers', c, ['manta', 'delly']) }
 
     def fasta = file(params.fasta, checkIfExists: true)
 
@@ -165,6 +172,16 @@ workflow {
     if (callers.contains('deepvariant')) {
         DEEPVARIANT(ch_bam_bai, fasta, ch_fai)
         ch_vcf = ch_vcf.mix(DEEPVARIANT.out.vcf)
+    }
+
+    // ---- structural variant calling (optional) -----------------------------
+    if (sv_callers.contains('manta')) {
+        MANTA(ch_bam_bai, fasta, ch_fai)
+        ch_vcf = ch_vcf.mix(MANTA.out.vcf)
+    }
+    if (sv_callers.contains('delly')) {
+        DELLY(ch_bam_bai, fasta, ch_fai)
+        ch_vcf = ch_vcf.mix(DELLY.out.vcf)
     }
 
     BCFTOOLS_STATS(ch_vcf)

@@ -2,7 +2,7 @@ process BWA_INDEX {
     tag "${fasta.name}"
     label 'process_high'
     conda "bioconda::bwa=0.7.19"
-    storeDir "${params.reference_cache}/${fasta.baseName}"
+    storeDir "${params.reference_cache}/${fasta.baseName}-${fasta.size()}"
 
     input:
     path fasta
@@ -21,7 +21,7 @@ process BWAMEM2_INDEX {
     tag "${fasta.name}"
     label 'process_high'
     conda "bioconda::bwa-mem2=2.3"
-    storeDir "${params.reference_cache}/${fasta.baseName}"
+    storeDir "${params.reference_cache}/${fasta.baseName}-${fasta.size()}"
 
     input:
     path fasta
@@ -40,7 +40,7 @@ process BOWTIE2_INDEX {
     tag "${fasta.name}"
     label 'process_high'
     conda "bioconda::bowtie2=2.5.5"
-    storeDir "${params.reference_cache}/${fasta.baseName}"
+    storeDir "${params.reference_cache}/${fasta.baseName}-${fasta.size()}"
 
     input:
     path fasta
@@ -132,7 +132,7 @@ process DRAGMAP_HASHTABLE {
     label 'process_high'
     conda "bioconda::dragmap=1.3.0"
     container "quay.io/biocontainers/dragmap:1.3.0--h5ca1c30_7"
-    storeDir "${params.reference_cache}/${fasta.baseName}"
+    storeDir "${params.reference_cache}/${fasta.baseName}-${fasta.size()}"
 
     input:
     path fasta
