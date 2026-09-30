@@ -199,6 +199,73 @@ PLATFORMS = {
         },
         "flags": [],
     },
+    "ont": {
+        "id": "ont",
+        "label": "Oxford Nanopore (long read)",
+        "description": "Single-end long reads, germline SNV/indel calling",
+        "paired": False,
+        "pipeline": "ont/main.nf",
+        "steps": [
+            {
+                "id": "trimmer",
+                "label": "QC & filtering",
+                "default": "chopper",
+                "options": [
+                    {
+                        "value": "chopper",
+                        "label": "chopper",
+                        "description": "Quality (Q≥10) and length (≥500bp) filtering. Raw ONT reads, unlike "
+                                        "HiFi's already-consensus-accurate output, benefit from this before alignment.",
+                    },
+                    {
+                        "value": "none",
+                        "label": "No filtering",
+                        "description": "Align raw reads as supplied",
+                    },
+                ],
+            },
+            {
+                "id": "markduplicates",
+                "label": "Pre-processing",
+                "default": "none",
+                "options": [
+                    {
+                        "value": "none",
+                        "label": "Skip duplicate marking",
+                        "description": "ONT libraries are typically PCR-free; this is the typical default",
+                    },
+                    {
+                        "value": "samtools",
+                        "label": "samtools markdup",
+                        "description": "Post-alignment duplicate marking, if your library prep used PCR amplification",
+                    },
+                ],
+            },
+        ],
+        "callers": {
+            "id": "callers",
+            "label": "Variant calling",
+            "multiple": True,
+            "default": ["clair3"],
+            "options": [
+                {
+                    "value": "clair3",
+                    "label": "Clair3",
+                    "description": "The most benchmarked, most widely used caller for ONT germline calling; "
+                                    "developed with ONT as a primary target platform. Runs in a container.",
+                    "requires_docker": True,
+                },
+                {
+                    "value": "deepvariant",
+                    "label": "DeepVariant",
+                    "description": "Google's deep-learning caller, with a model tuned for R10.4.1 ONT chemistry. "
+                                    "Runs in a container.",
+                    "requires_docker": True,
+                },
+            ],
+        },
+        "flags": [],
+    },
 }
 
 VALID = {
@@ -212,3 +279,21 @@ VALID = {
     }
     for platform_id, platform in PLATFORMS.items()
 }
+
+
+def needs_docker(platform_id: str, params: dict) -> bool:
+    """True if any tool selected in `params` runs in a container.
+
+    `params` is the run's stored Nextflow params: one value per step id, plus
+    a comma-joined `callers` string.
+    """
+    platform = PLATFORMS[platform_id]
+    for step in platform["steps"]:
+        chosen = params.get(step["id"])
+        if any(o["value"] == chosen and o.get("requires_docker") for o in step["options"]):
+            return True
+    chosen_callers = str(params.get("callers", "")).split(",")
+    return any(
+        o["value"] in chosen_callers and o.get("requires_docker")
+        for o in platform["callers"]["options"]
+    )

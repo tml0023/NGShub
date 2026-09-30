@@ -8,8 +8,7 @@
 // on a BAM, and there is no BQSR step (HiFi's per-base error profile isn't
 // what BQSR's covariate model was built to correct).
 
-include { NANOPLOT                       } from './modules/qc.nf'
-include { MULTIQC                        } from '../modules/qc.nf'
+include { NANOPLOT; MULTIQC              } from '../modules/qc.nf'
 include { PBMARKDUP                      } from './modules/markdup.nf'
 include { PBMM2_INDEX; PBMM2_ALIGN; MINIMAP2_INDEX; MINIMAP2_ALIGN } from './modules/align.nf'
 include { SAMTOOLS_FAIDX                 } from '../modules/prepare.nf'
