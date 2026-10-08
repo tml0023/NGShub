@@ -1,7 +1,8 @@
 # NGShub
 
 A web application for running NGS analysis across platforms: upload reads,
-choose your tools, and get VCFs.
+choose your tools, and get VCFs — or, for RNA-seq, gene/transcript counts,
+differential expression, and isoform classification.
 
 The application is an orchestration layer. It does not reimplement alignment or
 variant calling — it drives Nextflow pipelines that call established tools
@@ -102,6 +103,72 @@ that produces a VCF.
 Reference indices are cached in `~/.ngs-web/reference_cache` and shared across
 runs; conda environments are cached in `~/.ngs-web/conda`.
 
+## RNA-seq platforms
+
+These three are a different task from the DNA platforms above — quantifying
+or discovering transcripts, not calling variants — so they produce count
+matrices and GTFs, not VCFs. All three need a gene annotation (GTF) matched
+to the reference genome, in addition to the FASTA (see
+[Reference genomes](#reference-genomes)).
+
+### Illumina (RNA-seq) — `pipeline/rna/illumina/main.nf`
+
+Paired- or single-end. STAR aligns to the genome for QC purposes only
+(MultiQC mapping stats); Salmon quantifies independently, straight from the
+trimmed reads against a transcriptome index (no genome decoys — a possible
+future refinement, not required for Salmon to work correctly). Differential
+expression is automatic, not a toggle: assign samples to 2+ conditions in the
+sample table and DESeq2 runs via tximport; leave conditions blank and the
+pipeline stops at per-sample quantification.
+
+| Stage | Options |
+| --- | --- |
+| Read QC | FastQC + MultiQC |
+| Trimming | `Trim Galore`, or none |
+| Alignment | `STAR` (QC only — not fed into quantification) |
+| Quantification | `Salmon` |
+| Differential expression | DESeq2 + tximport, automatic when 2+ conditions are assigned |
+
+### PacBio Iso-Seq (long read) — `pipeline/rna/pacbio/main.nf`
+
+Single-end full-length cDNA. Fixed canonical workflow, not a tool-choice menu
+— `lima` (primer removal) → `isoseq refine` (polyA/concatemer trimming) →
+`isoseq cluster2` (isoform clustering) → `pbmm2` (`--preset ISOSEQ`) →
+`isoseq collapse` → `pigeon classify`/`filter` (PacBio's official classifier,
+built on SQANTI3) against the reference annotation. `lima`, `isoseq`, and
+`pbpigeon` all ship Linux-only bioconda binaries, so this entire platform
+needs Docker regardless of which options are picked — `pbmm2` is the only
+step that would otherwise run on conda. Defaults to the standard NEB Iso-Seq
+primers; upload your own primers FASTA if your library prep used a different
+kit (e.g. Kinnex barcoded primers). No differential expression — isoform-level
+comparison across samples isn't as standardized as DESeq2 is for short-read
+gene counts.
+
+Uploaded FASTQ is converted to BAM internally, since the Iso-Seq toolkit is
+BAM-native — but not via a plain `samtools import`. The Iso-Seq tools expect
+the per-read CCS tags every real PacBio BAM carries (`qs`/`qe`/`zm`/`np`/`rq`/
+`ec`); without them, `lima` doesn't error, it hangs indefinitely in an
+internal thread wait, regardless of thread count or `--peek-guess`. A small
+script (`pipeline/rna/pacbio/bin/fastq_to_pacbio_bam.py`, via `pysam`)
+builds a BAM with those tags populated instead.
+
+### Oxford Nanopore (RNA-seq) — `pipeline/rna/ont/main.nf`
+
+Single-end cDNA/direct RNA. `minimap2 -x splice` aligns all samples, then
+Bambu or StringTie2 reconstructs and quantifies transcripts — jointly across
+every sample at once (unlike the per-sample processing everywhere else in
+this app), since novel-isoform discovery benefits from pooled evidence.
+Bambu does reconstruction and quantification in one step; StringTie2 assembles
+per-sample, merges across samples, then quantifies with featureCounts. No
+differential expression, for the same reason as PacBio.
+
+| Stage | Options |
+| --- | --- |
+| Read QC | NanoPlot + MultiQC |
+| Filtering | `chopper`, or none |
+| Alignment | `minimap2` (`-x splice`) |
+| Quantification | `Bambu`, `StringTie2 + featureCounts` — one or more |
+
 ## Requirements
 
 - macOS or Linux
@@ -168,15 +235,24 @@ uncompressed (`.fa`, `.fasta`, `.fna`).
 `./scripts/setup_references.sh` downloads `hg38.fa` (GRCh38, UCSC
 chr-prefixed contigs) and `hg19.fa` (GRCh37, Broad's b37-style bare contig
 naming — `1` not `chr1`, chosen specifically because it matches the
-known-sites bundle below), plus matching BQSR known-sites resources into
+known-sites bundle below), matching BQSR known-sites resources into
 `data/known_sites/{hg38,hg19}/` (dbSNP138 + Mills gold-standard indels, from
-Broad's public reference bucket) — ~9 GB total, nothing here ships in the
-repo itself. Building an aligner index against either genome is a real
+Broad's public reference bucket), and matching gene annotations into
+`data/references/{hg38,hg19}.gtf` for the RNA-seq platforms (GENCODE for
+hg38, chr-prefixed; Ensembl GRCh37 release 87 for hg19, bare contig names —
+same contig-naming reasoning as the FASTA/known-sites pairing) — ~10 GB
+total, nothing here ships in the repo itself. A custom-uploaded reference
+needs its own matching GTF uploaded alongside it for the RNA-seq platforms,
+the same way BQSR needs its own known-sites. Building an aligner index against either genome is a real
 workload: `bwa-mem2 index` in particular wants well over the 6 GB RAM this
 pipeline is configured for on a laptop, and `DragMap`'s hash table build
 officially wants 32 GB+. `BWA-MEM` and `Bowtie2` are the realistic choices
 for full-genome Illumina runs on modest hardware; index once and it's cached
-in `~/.ngs-web/reference_cache` for every run after.
+in `~/.ngs-web/reference_cache` for every run after. STAR's genome index for
+the RNA-seq platform has the same problem, worse: STAR's own documentation
+wants ~30 GB RAM for a full human genome index, well beyond this pipeline's
+6 GB default ceiling — raise `--max_memory` (and have the RAM to back it up)
+before running Illumina RNA-seq against hg38/hg19 for real.
 
 Mixing genome builds breaks things in a way that's easy to miss: a reference
 and a known-sites VCF with the same contig name but different declared
@@ -298,6 +374,9 @@ pipeline/pacbio/main.nf  PacBio HiFi workflow
 pipeline/pacbio/modules/ PacBio-specific processes (reuses generic ones from pipeline/modules/)
 pipeline/ont/main.nf     Oxford Nanopore workflow
 pipeline/ont/modules/    ONT-specific processes (reuses generic ones, incl. NanoPlot, from pipeline/modules/)
+pipeline/rna/illumina/   Illumina RNA-seq workflow (STAR, Salmon, DESeq2)
+pipeline/rna/pacbio/     PacBio Iso-Seq workflow (lima, isoseq, pbmm2, pigeon)
+pipeline/rna/ont/        ONT RNA-seq workflow (minimap2, Bambu/StringTie2)
 pipeline/nextflow.config Shared: profiles, resource limits, conda/docker config
 backend/app/              FastAPI service: catalog, run submission, job runner, results
 frontend/src/             React UI: platform + run builder, run list, live progress, VCF browser
@@ -408,3 +487,13 @@ Per-run resource ceilings live in `pipeline/nextflow.config` (`max_cpus`,
   assumes simple REF/ALT records and doesn't understand breakend/SVTYPE VCF
   notation. SV output is only reachable via the Files tab (download and view
   in IGV, bcftools, etc.), under `variants/sv/<caller>/` in the run's results.
+- No dedicated viewer for RNA-seq output either, for the same reason: count
+  matrices, GTFs, and DESeq2's PCA/heatmap PDFs are only reachable via the
+  Files tab, not rendered in-app.
+- Salmon's transcriptome index isn't decoy-aware (no full-genome decoy
+  sequence) — a standard accuracy refinement, not required for correct
+  operation, but a possible improvement.
+- No differential expression for the long-read RNA-seq platforms (PacBio
+  Iso-Seq, ONT) — isoform-level cross-sample comparison isn't as
+  standardized as DESeq2 is for short-read gene counts, so both platforms
+  stop at quantification.

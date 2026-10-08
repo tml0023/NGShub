@@ -21,6 +21,10 @@ export interface Platform {
   callers: { id: string; label: string; multiple: boolean; default: string[]; options: Option[] }
   sv_callers: { id: string; label: string; multiple: boolean; default: string[]; options: Option[] }
   flags: { id: string; label: string; default: boolean; description: string; requires_known_sites?: boolean }[]
+  needs_annotation?: boolean
+  needs_condition?: boolean
+  needs_primers?: boolean
+  always_requires_docker?: boolean
 }
 
 export interface Catalog {
@@ -36,12 +40,14 @@ export interface SetupStatus {
   docker: { available: boolean; detail: string | null }
   references: Record<string, boolean>
   known_sites: Record<string, boolean>
+  annotations: Record<string, boolean>
 }
 
 export interface SampleRow {
   sample: string
   fastq_1: string
   fastq_2: string | null
+  condition?: string | null
 }
 
 export interface Task {

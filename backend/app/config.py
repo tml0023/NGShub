@@ -26,6 +26,14 @@ KNOWN_SITES_BY_REFERENCE = {
         KNOWN_SITES_DIR / "hg19" / "mills_indels.vcf.gz",
     ],
 }
+
+# RNA-seq platforms need a gene annotation (GTF) matched to the reference's
+# contig naming -- resolvable only for the references this mapping knows
+# about; a custom-uploaded reference needs its own GTF uploaded alongside it.
+ANNOTATION_BY_REFERENCE = {
+    "hg38.fa": REFERENCES_DIR / "hg38.gtf",
+    "hg19.fa": REFERENCES_DIR / "hg19.gtf",
+}
 PIPELINE_DIR = Path(
     os.environ.get("NGSWEB_PIPELINE_DIR", REPO_ROOT / "pipeline")
 ).resolve()

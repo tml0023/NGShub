@@ -14,7 +14,14 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db, runner
 from .catalog import PLATFORMS, VALID
-from .config import CORS_ORIGINS, KNOWN_SITES_BY_REFERENCE, REFERENCES_DIR, REPO_ROOT, RUNS_DIR
+from .config import (
+    ANNOTATION_BY_REFERENCE,
+    CORS_ORIGINS,
+    KNOWN_SITES_BY_REFERENCE,
+    REFERENCES_DIR,
+    REPO_ROOT,
+    RUNS_DIR,
+)
 
 DOCKER_HELP_URL = "https://www.docker.com/products/docker-desktop/"
 
@@ -22,6 +29,7 @@ SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 FASTQ_SUFFIXES = (".fastq", ".fq", ".fastq.gz", ".fq.gz")
 # samtools faidx needs an uncompressed (or bgzipped) FASTA; plain .gz will fail.
 FASTA_SUFFIXES = (".fa", ".fasta", ".fna")
+GTF_SUFFIXES = (".gtf", ".gff", ".gff3")
 
 
 @asynccontextmanager
@@ -113,10 +121,14 @@ def get_setup_status():
         name: all(p.is_file() for p in paths)
         for name, paths in KNOWN_SITES_BY_REFERENCE.items()
     }
+    annotations = {
+        name: path.is_file() for name, path in ANNOTATION_BY_REFERENCE.items()
+    }
     return {
         "docker": _docker_status(),
         "references": references,
         "known_sites": known_sites,
+        "annotations": annotations,
     }
 
 
@@ -127,6 +139,8 @@ async def create_run(
     samples: str = Form(...),
     files: list[UploadFile] = File(default=[]),
     reference_file: UploadFile | None = File(default=None),
+    annotation_file: UploadFile | None = File(default=None),
+    primers_file: UploadFile | None = File(default=None),
 ):
     try:
         cfg = json.loads(config)
@@ -187,6 +201,38 @@ async def create_run(
         if not reference_path.is_file():
             raise HTTPException(400, f"Unknown reference genome: {ref_name}")
 
+    annotation_path: Path | None = None
+    if platform_def.get("needs_annotation"):
+        if annotation_file is not None and annotation_file.filename:
+            gtf_name = safe_name(annotation_file.filename, "annotation filename")
+            if not gtf_name.lower().endswith(GTF_SUFFIXES):
+                raise HTTPException(400, "Annotation must be a GTF/GFF file")
+            annotation_path = inputs / gtf_name
+            with open(annotation_path, "wb") as handle:
+                shutil.copyfileobj(annotation_file.file, handle, length=1024 * 1024)
+        else:
+            if reference_file is not None:
+                raise HTTPException(
+                    400, "A custom reference needs a matching annotation GTF uploaded alongside it"
+                )
+            annotation_path = ANNOTATION_BY_REFERENCE.get(ref_name)
+            if annotation_path is None or not annotation_path.is_file():
+                available = ", ".join(sorted(ANNOTATION_BY_REFERENCE))
+                raise HTTPException(
+                    400,
+                    "This platform needs a gene annotation (GTF) matched to the reference genome; "
+                    f"available for: {available}. Pick one of those, or upload your own annotation.",
+                )
+
+    primers_path: Path | None = None
+    if platform_def.get("needs_primers"):
+        if primers_file is not None and primers_file.filename:
+            primers_name = safe_name(primers_file.filename, "primers filename")
+            primers_path = inputs / primers_name
+            with open(primers_path, "wb") as handle:
+                shutil.copyfileobj(primers_file.file, handle, length=1024 * 1024)
+        # else: leave unset, letting the pipeline fall back to its bundled default primers.
+
     known_sites: list[Path] = []
     if platform == "illumina" and cfg.get("bqsr"):
         known_sites = KNOWN_SITES_BY_REFERENCE.get(ref_name, [])
@@ -201,9 +247,12 @@ async def create_run(
         if missing:
             raise HTTPException(500, f"Known-sites files missing on server: {missing}")
 
+    needs_condition = bool(platform_def.get("needs_condition"))
+    condition_col = ",condition" if needs_condition else ""
+
     normalised = []
     if platform_def["paired"]:
-        samplesheet_rows = ["sample,fastq_1,fastq_2"]
+        samplesheet_rows = [f"sample,fastq_1,fastq_2{condition_col}"]
         for row in sample_rows:
             sample = safe_name(str(row.get("sample", "")), "sample name")
             read1 = safe_name(str(row.get("fastq_1", "")), "fastq_1")
@@ -213,20 +262,24 @@ async def create_run(
             read2 = safe_name(str(read2_value), "fastq_2") if read2_value else ""
             if read2 and read2 not in stored:
                 raise HTTPException(400, f"{read2} was not uploaded")
+            condition = safe_name(str(row.get("condition", "")), "condition") if needs_condition and row.get("condition") else ""
             samplesheet_rows.append(
-                f"{sample},{stored[read1]},{stored[read2] if read2 else ''}"
+                f"{sample},{stored[read1]},{stored[read2] if read2 else ''}{(',' + condition) if needs_condition else ''}"
             )
-            normalised.append({"sample": sample, "fastq_1": read1, "fastq_2": read2 or None})
+            normalised.append(
+                {"sample": sample, "fastq_1": read1, "fastq_2": read2 or None, "condition": condition or None}
+            )
     else:
         # Single-end (e.g. PacBio HiFi): one read file per sample, no pairing.
-        samplesheet_rows = ["sample,fastq"]
+        samplesheet_rows = [f"sample,fastq{condition_col}"]
         for row in sample_rows:
             sample = safe_name(str(row.get("sample", "")), "sample name")
             read1 = safe_name(str(row.get("fastq_1", "")), "fastq_1")
             if read1 not in stored:
                 raise HTTPException(400, f"{read1} was not uploaded")
-            samplesheet_rows.append(f"{sample},{stored[read1]}")
-            normalised.append({"sample": sample, "fastq_1": read1, "fastq_2": None})
+            condition = safe_name(str(row.get("condition", "")), "condition") if needs_condition and row.get("condition") else ""
+            samplesheet_rows.append(f"{sample},{stored[read1]}{(',' + condition) if needs_condition else ''}")
+            normalised.append({"sample": sample, "fastq_1": read1, "fastq_2": None, "condition": condition or None})
 
     samplesheet = directory / "samplesheet.csv"
     samplesheet.write_text("\n".join(samplesheet_rows) + "\n")
@@ -238,6 +291,10 @@ async def create_run(
         "callers": ",".join(callers),
         "sv_callers": ",".join(sv_callers),
     }
+    if annotation_path is not None:
+        params["gtf"] = str(annotation_path.resolve())
+    if primers_path is not None:
+        params["primers"] = str(primers_path.resolve())
     for step in platform_def["steps"]:
         params[step["id"]] = cfg[step["id"]]
     for flag in platform_def["flags"]:

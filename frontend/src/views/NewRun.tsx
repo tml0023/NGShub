@@ -49,6 +49,8 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
   const [samples, setSamples] = useState<SampleRow[]>([])
   const [reference, setReference] = useState('')
   const [referenceFile, setReferenceFile] = useState<File | null>(null)
+  const [annotationFile, setAnnotationFile] = useState<File | null>(null)
+  const [primersFile, setPrimersFile] = useState<File | null>(null)
   const [choices, setChoices] = useState<Record<string, string>>({})
   const [callers, setCallers] = useState<string[]>([])
   const [svCallers, setSvCallers] = useState<string[]>([])
@@ -66,6 +68,8 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
     setFlags(Object.fromEntries(next.flags.map((flag) => [flag.id, flag.default])))
     setFiles([])
     setSamples([])
+    setAnnotationFile(null)
+    setPrimersFile(null)
   }
 
   useEffect(() => {
@@ -87,6 +91,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
   // than let the run fail minutes later on a container pull.
   const dockerToolsSelected: string[] = platform
     ? [
+        ...(platform.always_requires_docker ? [platform.label] : []),
         ...platform.steps.flatMap((step) =>
           step.options.filter((o) => o.value === choices[step.id] && o.requires_docker).map((o) => o.label),
         ),
@@ -102,6 +107,11 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
   const bqsrOn = Boolean(flags.bqsr)
   const bqsrKnownSitesReady = reference ? setupStatus?.known_sites[reference] : undefined
   const bqsrBlocked = bqsrOn && !referenceFile && reference !== '' && bqsrKnownSitesReady === false
+
+  const needsAnnotation = Boolean(platform?.needs_annotation)
+  const annotationReady = reference ? setupStatus?.annotations[reference] : undefined
+  const annotationBlocked =
+    needsAnnotation && !referenceFile && !annotationFile && reference !== '' && annotationReady === false
 
   function onFilesChosen(chosen: FileList | null) {
     const list = chosen ? [...chosen] : []
@@ -127,6 +137,12 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
     )
   }
 
+  function updateCondition(index: number, condition: string) {
+    setSamples((current) =>
+      current.map((row, i) => (i === index ? { ...row, condition: condition || null } : row)),
+    )
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
@@ -135,6 +151,12 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
     if (samples.length === 0) return setError('Upload at least one FASTQ file')
     if (!reference && !referenceFile) return setError('Choose or upload a reference genome')
     if (callers.length === 0) return setError('Select at least one variant caller')
+    if (needsAnnotation && !referenceFile && !annotationFile && annotationReady === false) {
+      return setError('This reference has no matching annotation (GTF) — upload one, or pick a different reference')
+    }
+    if (needsAnnotation && referenceFile && !annotationFile) {
+      return setError('A custom reference needs a matching annotation (GTF) uploaded alongside it')
+    }
 
     const body = new FormData()
     body.append('name', name || `run-${new Date().toISOString().slice(0, 16)}`)
@@ -145,6 +167,8 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
     body.append('samples', JSON.stringify(samples))
     for (const file of files) body.append('files', file)
     if (referenceFile) body.append('reference_file', referenceFile)
+    if (annotationFile) body.append('annotation_file', annotationFile)
+    if (primersFile) body.append('primers_file', primersFile)
 
     setSubmitting(true)
     try {
@@ -207,6 +231,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
                 <th>Sample</th>
                 <th>Read 1</th>
                 {platform.paired && <th>Read 2</th>}
+                {platform.needs_condition && <th>Condition</th>}
               </tr>
             </thead>
             <tbody>
@@ -225,10 +250,26 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
                       {row.fastq_2 ?? <span className="muted">single-end</span>}
                     </td>
                   )}
+                  {platform.needs_condition && (
+                    <td>
+                      <input
+                        className="inline-input"
+                        placeholder="e.g. treated"
+                        value={row.condition ?? ''}
+                        onChange={(e) => updateCondition(index, e.target.value)}
+                      />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
+        )}
+        {platform.needs_condition && (
+          <p className="muted small">
+            Optional — assign samples to conditions (e.g. treated/control) to run differential
+            expression. Leave blank to skip it and just get per-sample quantification.
+          </p>
         )}
 
         <label className="field">
@@ -255,6 +296,40 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
             onChange={(e) => setReferenceFile(e.target.files?.[0] ?? null)}
           />
         </label>
+
+        {needsAnnotation && (
+          <label className="field">
+            <span>
+              Gene annotation (GTF){referenceFile ? '' : ' — only needed if the selected reference has none bundled'}
+            </span>
+            <input
+              type="file"
+              accept=".gtf,.gff,.gff3"
+              onChange={(e) => setAnnotationFile(e.target.files?.[0] ?? null)}
+            />
+            {annotationBlocked && (
+              <p className="warning small flag-description">
+                No bundled annotation for {reference}. Run <code>./scripts/setup_references.sh</code>,
+                or upload a GTF above.
+              </p>
+            )}
+          </label>
+        )}
+
+        {platform.needs_primers && (
+          <label className="field">
+            <span>…or upload your own Iso-Seq primers FASTA (optional)</span>
+            <input
+              type="file"
+              accept=".fa,.fasta,.fna"
+              onChange={(e) => setPrimersFile(e.target.files?.[0] ?? null)}
+            />
+            <p className="muted small">
+              Defaults to the standard NEB Iso-Seq primers if left blank. Upload your own if your
+              library prep used a different kit (e.g. Kinnex barcoded primers).
+            </p>
+          </label>
+        )}
       </section>
 
       {platform.steps.map((step) => (
@@ -286,7 +361,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
 
       <section className="card">
         <h2>{platform.callers.label}</h2>
-        <p className="muted">Select one or more callers — each produces its own VCF.</p>
+        <p className="muted">Select one or more — each runs independently and publishes its own output.</p>
         <div className="options">
           {platform.callers.options.map((option) => (
             <label
@@ -308,6 +383,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
         </div>
       </section>
 
+      {platform.sv_callers.options.length > 0 && (
       <section className="card">
         <h2>{platform.sv_callers.label}</h2>
         <p className="muted">
@@ -335,6 +411,7 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
           ))}
         </div>
       </section>
+      )}
 
       {platform.flags.length > 0 && (
         <section className="card">

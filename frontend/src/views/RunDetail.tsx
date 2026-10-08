@@ -227,6 +227,11 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
   const active = ACTIVE.has(run.status)
   const callers = String(run.params.callers ?? '').split(',').filter(Boolean)
   const sampleNames = run.samples.map((s) => s.sample)
+  // RNA platforms produce count matrices/GTFs, not VCFs -- no variant browser for them.
+  const hasVariants = !run.platform.endsWith('_rna')
+  const tabs = hasVariants
+    ? (['progress', 'log', 'files', 'variants'] as const)
+    : (['progress', 'log', 'files'] as const)
 
   return (
     <div className="stack">
@@ -270,7 +275,7 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
       </section>
 
       <div className="tabs">
-        {(['progress', 'log', 'files', 'variants'] as const).map((key) => (
+        {tabs.map((key) => (
           <button
             key={key}
             type="button"
@@ -285,7 +290,7 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
       {tab === 'progress' && <ProgressTable run={run} />}
       {tab === 'log' && <LogPanel runId={run.id} active={active} />}
       {tab === 'files' && <FileBrowser runId={run.id} />}
-      {tab === 'variants' && (
+      {tab === 'variants' && hasVariants && (
         <VariantBrowser runId={run.id} callers={callers} samples={sampleNames} />
       )}
     </div>

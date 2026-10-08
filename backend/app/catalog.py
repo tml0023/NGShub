@@ -322,6 +322,182 @@ PLATFORMS = {
         },
         "flags": [],
     },
+    "illumina_rna": {
+        "id": "illumina_rna",
+        "label": "Illumina (RNA-seq)",
+        "description": "Paired- or single-end short-read RNA-seq — gene/transcript quantification, "
+                        "plus differential expression when samples are assigned to 2+ conditions",
+        "paired": True,
+        "pipeline": "rna/illumina/main.nf",
+        "needs_annotation": True,
+        "needs_condition": True,
+        "steps": [
+            {
+                "id": "trimmer",
+                "label": "QC & trimming",
+                "default": "trimgalore",
+                "options": [
+                    {
+                        "value": "trimgalore",
+                        "label": "Trim Galore",
+                        "description": "Adapter/quality trimming; nf-core/rnaseq's default trimmer",
+                    },
+                    {
+                        "value": "none",
+                        "label": "No trimming",
+                        "description": "Align raw reads as supplied",
+                    },
+                ],
+            },
+            {
+                "id": "aligner",
+                "label": "Alignment",
+                "default": "star",
+                "options": [
+                    {
+                        "value": "star",
+                        "label": "STAR",
+                        "description": "Splice-aware aligner; the field standard for short-read RNA-seq, "
+                                        "used by nf-core/rnaseq",
+                    },
+                ],
+            },
+        ],
+        "callers": {
+            "id": "callers",
+            "label": "Quantification",
+            "multiple": True,
+            "default": ["salmon"],
+            "options": [
+                {
+                    "value": "salmon",
+                    "label": "Salmon",
+                    "description": "Transcript- and gene-level quantification; nf-core/rnaseq's default quantifier. "
+                                    "Feeds DESeq2 via tximport when 2+ sample conditions are present.",
+                },
+            ],
+        },
+        "sv_callers": {
+            "id": "sv_callers",
+            "label": "",
+            "multiple": True,
+            "default": [],
+            "options": [],
+        },
+        "flags": [
+            {
+                "id": "skip_fastqc",
+                "label": "Skip FastQC",
+                "default": False,
+                "description": "Disable per-sample FastQC reports (MultiQC still runs)",
+            },
+        ],
+    },
+    "pacbio_rna": {
+        "id": "pacbio_rna",
+        "label": "PacBio Iso-Seq (long read)",
+        "description": "Single-end full-length cDNA — isoform discovery and classification against a "
+                        "reference annotation (gene/transcript counts, not differential expression)",
+        "paired": False,
+        "pipeline": "rna/pacbio/main.nf",
+        "needs_annotation": True,
+        "needs_condition": False,
+        "needs_primers": True,
+        "always_requires_docker": True,
+        "steps": [],
+        "callers": {
+            "id": "callers",
+            "label": "Isoform classification",
+            "multiple": True,
+            "default": ["pigeon"],
+            "options": [
+                {
+                    "value": "pigeon",
+                    "label": "pigeon",
+                    "description": "PacBio's official isoform classifier (built on SQANTI3); classifies "
+                                    "collapsed transcripts against a reference annotation as known/novel "
+                                    "genes/isoforms.",
+                },
+            ],
+        },
+        "sv_callers": {
+            "id": "sv_callers",
+            "label": "",
+            "multiple": True,
+            "default": [],
+            "options": [],
+        },
+        "flags": [],
+    },
+    "ont_rna": {
+        "id": "ont_rna",
+        "label": "Oxford Nanopore (RNA-seq)",
+        "description": "Single-end long-read cDNA/direct RNA — transcript reconstruction and "
+                        "quantification, including novel isoforms (not differential expression)",
+        "paired": False,
+        "pipeline": "rna/ont/main.nf",
+        "needs_annotation": True,
+        "needs_condition": False,
+        "steps": [
+            {
+                "id": "trimmer",
+                "label": "QC & filtering",
+                "default": "chopper",
+                "options": [
+                    {
+                        "value": "chopper",
+                        "label": "chopper",
+                        "description": "Quality (Q≥10) and length (≥500bp) filtering before alignment",
+                    },
+                    {
+                        "value": "none",
+                        "label": "No filtering",
+                        "description": "Align raw reads as supplied",
+                    },
+                ],
+            },
+            {
+                "id": "aligner",
+                "label": "Alignment",
+                "default": "minimap2",
+                "options": [
+                    {
+                        "value": "minimap2",
+                        "label": "minimap2 (spliced)",
+                        "description": "Splice-aware long-read alignment (-x splice); the field standard "
+                                        "for ONT RNA-seq, used by nf-core/nanoseq",
+                    },
+                ],
+            },
+        ],
+        "callers": {
+            "id": "callers",
+            "label": "Transcript quantification",
+            "multiple": True,
+            "default": ["bambu"],
+            "options": [
+                {
+                    "value": "bambu",
+                    "label": "Bambu",
+                    "description": "Reconstructs and quantifies transcripts (including novel isoforms) in "
+                                    "one step; nf-core/nanoseq's primary recommended quantifier",
+                },
+                {
+                    "value": "stringtie2",
+                    "label": "StringTie2 + featureCounts",
+                    "description": "Alternative transcript assembly path offered by nf-core/nanoseq",
+                },
+            ],
+        },
+        "sv_callers": {
+            "id": "sv_callers",
+            "label": "",
+            "multiple": True,
+            "default": [],
+            "options": [],
+        },
+        "flags": [],
+    },
 }
 
 VALID = {
@@ -345,6 +521,8 @@ def needs_docker(platform_id: str, params: dict) -> bool:
     a comma-joined `callers` string.
     """
     platform = PLATFORMS[platform_id]
+    if platform.get("always_requires_docker"):
+        return True
     for step in platform["steps"]:
         chosen = params.get(step["id"])
         if any(o["value"] == chosen and o.get("requires_docker") for o in step["options"]):
