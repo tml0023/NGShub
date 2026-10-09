@@ -4,7 +4,7 @@ Real external-benchmark validation, run against the project plan's
 performance targets (Oct 2026 merged plan). Three of the four targets that
 map to pipelines which existed at the time are met. The pathogen
 surveillance family (Phase 5) has since had its first real-data validation
-too — see below.
+too — on both Illumina and, as of this update, Oxford Nanopore — see below.
 
 ## GIAB concordance (SNP / indel), Illumina pipeline
 
@@ -120,6 +120,61 @@ dataset, then 100-200 runs from PRJNA1102327)**
 Not yet done: Kraken2 taxonomic screening, host depletion, Nextclade/UShER
 lineage placement, POD5/Dorado ingest, and the formal sensitivity/
 specificity validation run against the plan's named datasets.
+
+## Targeted influenza surveillance, Oxford Nanopore MVP, first real-data run
+
+**Not a completed target — a first correctness check on real data, same
+caveat as the Illumina MVP above**
+
+- **Sample**: SRR26182435, a real Oxford Nanopore MinION run from BioProject
+  PRJNA1021187 (USDA's Exotic and Emerging Avian Viral Diseases Research
+  Unit, U.S. National Poultry Research Center) — a genuine avian influenza
+  field surveillance dataset, not the same BioProject as the Illumina run
+  above but the same real-world category the plan targets. 175,692 single-end
+  reads, mean length 338bp (consistent with amplicon-tiled or
+  segment-targeted sequencing, not whole-genome shotgun), pulled live via
+  `prefetch`/`fasterq-dump`.
+- **Pipeline**: `pipeline/surveillance/influenza_ont/main.nf` — NanoPlot →
+  `chopper` filtering → IRMA (`FLU-minion` config — IRMA's own MinION-tuned
+  preset for the same FLU module used on Illumina, not a separate tool) →
+  GenoFLU → the same risk-marker screen and report scripts as the Illumina
+  pipeline, called directly from `pipeline/surveillance/influenza/bin/`
+  rather than duplicated, since the marker table and reference proteins are
+  literature-sourced and correctness-critical.
+- **Result**: IRMA correctly assembled all 8 segments from real ONT reads and
+  called subtype **H5N1** (HA: H5, NA: N1) — again landing on H5N1 by pure
+  biological signal, not a coincidence of the test data. GenoFLU assigned
+  genotype **A1** (wholly Eurasian avian lineage across all 8 segments,
+  99.69–100% identity), distinct from the Illumina run's B3.13 — the correct,
+  biologically sensible result for a wild/poultry avian-surveillance sample
+  as opposed to the North American dairy-cattle outbreak lineage, and a
+  useful sign the pipeline isn't just reproducing one memorized answer. Risk
+  screen: all 4 markers correctly read as wildtype, giving a "low" risk call.
+  Verified twice — once by running IRMA/GenoFLU/the risk script directly by
+  hand, and once through the actual Nextflow pipeline end-to-end — with
+  identical results both times.
+- **Negative control**: the same synthetic random-sequence negative control
+  used for the Illumina MVP, run through the ONT pipeline. IRMA correctly
+  assembled zero segments; GenoFLU, the risk screen, and the report stage
+  were all correctly skipped — only `NANOPLOT`, `IRMA_ASSEMBLE_ONT`, and
+  `MULTIQC` ran, confirmed by inspecting the run's process list and result
+  directory (no `genotype/`, `risk/`, or `report/` output at all).
+- **A real bug found and fixed before it shipped**: the DNA ONT pipeline's
+  `chopper` filtering step defaults to a 500bp minimum read length — correct
+  for whole-genome shotgun long reads, but on this real amplicon-style
+  influenza dataset (mean length 338bp) it would have discarded roughly 87%
+  of reads (only ~12.5% of reads in SRR26182435 are ≥500bp; ~96% are
+  ≥150bp) before IRMA ever saw them. Confirmed directly by computing the
+  read-length distribution before wiring the pipeline up. Fixed with a
+  pipeline-local `chopper` module (100bp floor — enough to strip genuinely
+  unusable fragments without discarding the bulk of real reads) instead of
+  reusing the DNA ONT pipeline's module, and a distinct parameter name
+  (`influenza_chopper_min_length`) so it can't silently inherit the shared
+  `nextflow.config`'s 500bp default for the other platform.
+
+Not yet done: the same list as the Illumina MVP (Kraken2, host depletion,
+Nextclade/UShER, POD5/Dorado ingest, formal sensitivity/specificity
+validation), plus PacBio support for this mode.
 
 ## Remaining listed targets
 

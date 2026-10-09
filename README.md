@@ -209,6 +209,33 @@ can land on the wrong start codon (confirmed directly during validation; see
 `docs/validation_results.md`). The result is decision support, not a
 diagnosis — see the disclaimer every generated report carries.
 
+### Targeted Influenza Surveillance (Nanopore) — `pipeline/surveillance/influenza_ont/main.nf`
+
+Single-end Oxford Nanopore. Same genotyping, risk-marker, and reporting
+logic as the Illumina version above — this pipeline calls those scripts
+directly from `pipeline/surveillance/influenza/bin/` rather than keeping a
+second copy, since the marker table and reference proteins are
+literature-sourced and correctness-critical. The only real difference is
+assembly: optional `chopper` quality/length filtering, then `IRMA` run with
+its `FLU-minion` config — IRMA's own MinION-tuned preset for the same FLU
+module, not a separate tool. Output layout is identical to the Illumina
+run, so everything downstream is unchanged.
+
+Uses a 100bp minimum-length floor for `chopper`, not the DNA ONT pipeline's
+500bp default — confirmed on a real MinION surveillance run that the 500bp
+floor (sized for whole-genome shotgun long reads) would have discarded
+~87% of reads on amplicon-style influenza data. Validated end to end
+against a real avian H5N1 MinION sample; see `docs/validation_results.md`.
+
+| Stage | Tool |
+| --- | --- |
+| Read QC | NanoPlot + MultiQC |
+| Filtering (optional) | `chopper` |
+| Segment assembly & subtyping | `IRMA` (FLU-minion config) |
+| Genotype assignment | `GenoFLU` |
+| Risk-marker screen | in-house, rule-based (shared with Illumina) |
+| Report | plain-language HTML summary + technical appendix |
+
 ## Requirements
 
 - macOS or Linux
@@ -417,7 +444,8 @@ pipeline/ont/modules/    ONT-specific processes (reuses generic ones, incl. Nano
 pipeline/rna/illumina/   Illumina RNA-seq workflow (STAR, Salmon, DESeq2)
 pipeline/rna/pacbio/     PacBio Iso-Seq workflow (lima, isoseq, pbmm2, pigeon)
 pipeline/rna/ont/        ONT RNA-seq workflow (minimap2, Bambu/StringTie2)
-pipeline/surveillance/influenza/  Targeted influenza workflow (IRMA, GenoFLU, risk scoring)
+pipeline/surveillance/influenza/      Targeted influenza workflow, Illumina (IRMA, GenoFLU, risk scoring)
+pipeline/surveillance/influenza_ont/  Targeted influenza workflow, ONT (IRMA FLU-minion; calls ../influenza/bin/ scripts)
 pipeline/nextflow.config Shared: profiles, resource limits, conda/docker config
 backend/app/              FastAPI service: catalog, run submission, job runner, results
 frontend/src/             React UI: platform + run builder, run list, live progress, VCF browser
@@ -539,15 +567,15 @@ Per-run resource ceilings live in `pipeline/nextflow.config` (`max_cpus`,
   Iso-Seq, ONT) — isoform-level cross-sample comparison isn't as
   standardized as DESeq2 is for short-read gene counts, so both platforms
   stop at quantification.
-- Pathogen surveillance is an MVP: only targeted influenza (Illumina) exists.
-  No ONT/PacBio support yet despite ONT being the plan's stated priority
-  platform. No Kraken2 taxonomic screening or host depletion — a sample is
-  assumed to already be enriched for influenza, not raw metagenomic input.
-  No Nextclade/UShER lineage placement. No POD5/Dorado basecalling ingest —
-  FASTQ only. The risk-marker table has 4 markers (PB2 E627K/D701N, PA I38T,
-  NA H275Y); the plan's broader "receptor-binding changes in HA" category
-  isn't implemented. No dedicated viewer beyond the one generated HTML
-  report per sample.
+- Pathogen surveillance is an MVP: targeted influenza exists for Illumina and
+  now Oxford Nanopore; no PacBio support. No Kraken2 taxonomic screening or
+  host depletion — a sample is assumed to already be enriched for influenza,
+  not raw metagenomic input. No Nextclade/UShER lineage placement. No
+  POD5/Dorado basecalling ingest — FASTQ only (ONT runs still need a
+  basecaller upstream of this pipeline). The risk-marker table has 4 markers
+  (PB2 E627K/D701N, PA I38T, NA H275Y); the plan's broader "receptor-binding
+  changes in HA" category isn't implemented. No dedicated viewer beyond the
+  one generated HTML report per sample.
 - Every surveillance report is a screening result, not a diagnosis — see the
   disclaimer rendered into each one. No CLIA/CAP pathway exists or is
   planned without a separate, deliberate validation and regulatory effort.

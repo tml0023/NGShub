@@ -229,7 +229,7 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
   const sampleNames = run.samples.map((s) => s.sample)
   // RNA platforms produce count matrices/GTFs, not VCFs -- no variant browser for them.
   // RNA and surveillance platforms don't produce VCFs -- no variant browser for them.
-  const hasVariants = !run.platform.endsWith('_rna') && run.platform !== 'targeted_influenza'
+  const hasVariants = !run.platform.endsWith('_rna') && !run.platform.startsWith('targeted_influenza')
   const tabs = hasVariants
     ? (['progress', 'log', 'files', 'variants'] as const)
     : (['progress', 'log', 'files'] as const)

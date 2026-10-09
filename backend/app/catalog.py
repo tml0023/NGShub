@@ -530,6 +530,56 @@ PLATFORMS = {
         },
         "flags": [],
     },
+    "targeted_influenza_ont": {
+        "id": "targeted_influenza_ont",
+        "label": "Targeted Influenza Surveillance (Nanopore)",
+        "description": "Single-end Oxford Nanopore — influenza A segment assembly, H/N subtype and "
+                        "genotype, and a rule-based spillover risk screen (research use only, not diagnostic)",
+        "paired": False,
+        "pipeline": "surveillance/influenza_ont/main.nf",
+        "needs_reference": False,
+        "steps": [
+            {
+                "id": "trimmer",
+                "label": "QC & filtering",
+                "default": "chopper",
+                "options": [
+                    {
+                        "value": "chopper",
+                        "label": "chopper",
+                        "description": "Quality and length filtering of raw ONT reads before assembly",
+                    },
+                    {
+                        "value": "none",
+                        "label": "No filtering",
+                        "description": "Assemble raw reads as supplied",
+                    },
+                ],
+            },
+        ],
+        "callers": {
+            "id": "callers",
+            "label": "Assembly",
+            "multiple": True,
+            "default": ["irma"],
+            "options": [
+                {
+                    "value": "irma",
+                    "label": "IRMA (FLU-minion)",
+                    "description": "CDC's Iterative Refinement Meta-Assembler, using its MinION-tuned config "
+                                    "for segment-level influenza assembly and subtype calling",
+                },
+            ],
+        },
+        "sv_callers": {
+            "id": "sv_callers",
+            "label": "",
+            "multiple": True,
+            "default": [],
+            "options": [],
+        },
+        "flags": [],
+    },
 }
 
 VALID = {
