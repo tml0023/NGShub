@@ -178,6 +178,10 @@ reference genome input at all. The first mode — targeted influenza — is an
 MVP, not a finished product; see [Current limitations](#current-limitations)
 for what's not built yet.
 
+Both influenza pipelines also need the Kraken2 viral database — run
+`./scripts/setup_kraken2_db.sh` once (~0.5 GB download) before using either
+one; the run will fail with a clear error if it's missing.
+
 ### Targeted Influenza Surveillance — `pipeline/surveillance/influenza/main.nf`
 
 Paired-end Illumina only for now. No reference genome or annotation needed
@@ -187,6 +191,7 @@ this platform doesn't show the reference-genome picker at all.
 | Stage | Tool |
 | --- | --- |
 | Read QC | FastQC + MultiQC |
+| Taxonomic composition | `Kraken2` (viral database; see below) |
 | Segment assembly & subtyping | `IRMA` (CDC's Iterative Refinement Meta-Assembler, FLU module) |
 | Genotype assignment | `GenoFLU` (USDA; H5Nx clade 2.3.4.4b genotyping) |
 | Risk-marker screen | in-house, rule-based (see below) |
@@ -195,7 +200,24 @@ this platform doesn't show the reference-genome picker at all.
 A sample that assembles zero segments (no influenza detected, or an
 incomplete genome) is a real, reportable outcome, not a pipeline error —
 genotyping, risk-scoring, and reporting are skipped for it rather than
-producing a fabricated result.
+producing a fabricated result. Kraken2 still runs on every sample
+regardless, so even a zero-segment sample gets a taxonomic composition
+result explaining why — mostly unclassified, a different virus, or too
+little signal to assemble (`taxonomy/<sample>/` in the results, Files tab
+only for now, no dedicated viewer).
+
+**Taxonomic composition screen.** Runs Kraken2 against its prebuilt
+"Viral" database (RefSeq viral, ~0.5 GB) — not the full standard database
+(100+ GB, impractical on a single dev machine), so this screens composition
+*among viruses*, not true host-genome depletion (no host genomes in this
+database). Reports the percent of reads classified as Influenza A virus
+(NCBI taxid 11320) and the percent unclassified. Validated against a real
+avian H5N1 MinION field sample: only 1.15% of reads classified as Influenza
+A virus (98.48% unclassified — an unenriched WGS prep, not a targeted
+amplicon library), yet IRMA still correctly assembled all 8 segments from
+that minority signal. That's the point of this screen: it tells you the
+sample is mostly non-viral background even when assembly still succeeds,
+which a pass/fail assembly result alone wouldn't show.
 
 **Risk-marker screening (v1, rule-based).** Checks the assembled PB2, PA,
 and NA segments against four literature-established markers: PB2 E627K and
@@ -230,6 +252,7 @@ against a real avian H5N1 MinION sample; see `docs/validation_results.md`.
 | Stage | Tool |
 | --- | --- |
 | Read QC | NanoPlot + MultiQC |
+| Taxonomic composition | `Kraken2` (viral database; shared with Illumina) |
 | Filtering (optional) | `chopper` |
 | Segment assembly & subtyping | `IRMA` (FLU-minion config) |
 | Genotype assignment | `GenoFLU` |
@@ -262,6 +285,7 @@ app tells you when you do, with a warning right on the New Run form (see
 ```bash
 ./scripts/setup_docker.sh       # Docker Desktop -- for DragMap, DeepVariant, pbmarkdup, Clair3
 ./scripts/setup_references.sh   # hg38/hg19 genomes + BQSR known-sites, ~9 GB, resumable
+./scripts/setup_kraken2_db.sh   # Kraken2 viral DB -- for the influenza surveillance platforms, ~0.5 GB
 ```
 
 `setup_docker.sh` automates what it can (installs via Homebrew, launches the
@@ -436,7 +460,7 @@ there's no shared default, since the two share few of the same values.
 
 ```
 pipeline/main.nf         Illumina workflow
-pipeline/modules/        Illumina processes
+pipeline/modules/        Illumina processes (also: kraken2.nf, shared by both influenza surveillance platforms)
 pipeline/pacbio/main.nf  PacBio HiFi workflow
 pipeline/pacbio/modules/ PacBio-specific processes (reuses generic ones from pipeline/modules/)
 pipeline/ont/main.nf     Oxford Nanopore workflow
@@ -568,14 +592,17 @@ Per-run resource ceilings live in `pipeline/nextflow.config` (`max_cpus`,
   standardized as DESeq2 is for short-read gene counts, so both platforms
   stop at quantification.
 - Pathogen surveillance is an MVP: targeted influenza exists for Illumina and
-  now Oxford Nanopore; no PacBio support. No Kraken2 taxonomic screening or
-  host depletion — a sample is assumed to already be enriched for influenza,
-  not raw metagenomic input. No Nextclade/UShER lineage placement. No
+  now Oxford Nanopore; no PacBio support. Taxonomic composition screening
+  exists (Kraken2, viral database) but not true host depletion — the viral
+  database has no host genomes in it, so this screens composition *among
+  viruses*, not a host-vs-pathogen filter, and it's diagnostic only (never
+  removes reads or gates assembly). No Nextclade/UShER lineage placement. No
   POD5/Dorado basecalling ingest — FASTQ only (ONT runs still need a
   basecaller upstream of this pipeline). The risk-marker table has 4 markers
   (PB2 E627K/D701N, PA I38T, NA H275Y); the plan's broader "receptor-binding
   changes in HA" category isn't implemented. No dedicated viewer beyond the
-  one generated HTML report per sample.
+  one generated HTML report per sample — the Kraken2 composition result is
+  Files-tab only, not surfaced in that report yet.
 - Every surveillance report is a screening result, not a diagnosis — see the
   disclaimer rendered into each one. No CLIA/CAP pathway exists or is
   planned without a separate, deliberate validation and regulatory effort.

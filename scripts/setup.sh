@@ -59,5 +59,6 @@ Setup complete.
 Optional, only if you need them:
   ./scripts/setup_docker.sh      # Docker Desktop, for DragMap/DeepVariant/pbmarkdup/Clair3
   ./scripts/setup_references.sh  # hg38/hg19 genomes + BQSR known-sites (~9 GB)
+  ./scripts/setup_kraken2_db.sh  # Kraken2 viral DB, for the influenza surveillance platforms (~0.5 GB)
 
 EOF

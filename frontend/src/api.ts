@@ -25,6 +25,7 @@ export interface Platform {
   needs_reference?: boolean
   needs_condition?: boolean
   needs_primers?: boolean
+  needs_kraken2?: boolean
   always_requires_docker?: boolean
 }
 
@@ -42,6 +43,7 @@ export interface SetupStatus {
   references: Record<string, boolean>
   known_sites: Record<string, boolean>
   annotations: Record<string, boolean>
+  kraken2_db: boolean
 }
 
 export interface SampleRow {

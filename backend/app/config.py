@@ -12,6 +12,9 @@ REFERENCES_DIR = Path(
 KNOWN_SITES_DIR = Path(
     os.environ.get("NGSWEB_KNOWN_SITES_DIR", DATA_DIR / "known_sites")
 ).resolve()
+KRAKEN2_DB_DIR = Path(
+    os.environ.get("NGSWEB_KRAKEN2_DB_DIR", DATA_DIR / "kraken2_db")
+).resolve()
 
 # BQSR needs known-variant sites matched to the reference build. Resolvable
 # only for the references this mapping knows about; a custom-uploaded

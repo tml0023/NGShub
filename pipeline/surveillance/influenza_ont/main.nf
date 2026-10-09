@@ -9,9 +9,13 @@
 // rather than forking copies -- those are literature-sourced and
 // correctness-critical (see check_risk_markers.py), so one source of truth
 // is worth the cross-directory path over independent copies that could
-// drift out of sync.
+// drift out of sync. Also runs Kraken2 taxonomic composition on every
+// sample, same as the Illumina pipeline and for the same reason: a sample
+// IRMA assembles nothing from still gets a composition result explaining
+// why (Files tab, taxonomy/<sample>/).
 
 include { NANOPLOT; MULTIQC } from '../../modules/qc.nf'
+include { KRAKEN2 } from '../../modules/kraken2.nf'
 include { CHOPPER } from './modules/filter.nf'
 include { IRMA_ASSEMBLE_ONT } from './modules/irma.nf'
 include { GENOFLU } from './modules/genotype.nf'
@@ -28,7 +32,9 @@ workflow {
     if (!params.input) { error("--input samplesheet.csv is required") }
 
     validateChoice('trimmer', params.trimmer, ['chopper', 'none'])
+    if (!params.kraken2_db) { error("--kraken2_db <path> is required (see scripts/setup_kraken2_db.sh)") }
 
+    def kraken2_db = file(params.kraken2_db, checkIfExists: true, type: 'dir')
     def influenza_dir = "${workflow.projectDir}/../influenza"
     def marker_table = file("${influenza_dir}/assets/risk_markers.tsv", checkIfExists: true)
     def pb2_ref       = file("${influenza_dir}/assets/PB2_reference.fasta", checkIfExists: true)
@@ -42,7 +48,10 @@ workflow {
         .map { row ->
             if (!row.sample) { error("Samplesheet row is missing a 'sample' column value") }
             if (!row.fastq)  { error("Sample '${row.sample}' is missing fastq") }
-            def meta = [id: row.sample.toString().trim()]
+            // single_end is always true here, but set explicitly (not left
+            // implicit/absent) because the shared KRAKEN2 module branches on it
+            // to build the right kraken2 CLI args for single- vs paired-end reads.
+            def meta = [id: row.sample.toString().trim(), single_end: true]
             tuple(meta, file(row.fastq, checkIfExists: true))
         }
 
@@ -50,6 +59,9 @@ workflow {
 
     NANOPLOT(ch_reads)
     ch_qc = ch_qc.mix(NANOPLOT.out.report)
+
+    KRAKEN2(ch_reads, kraken2_db)
+    ch_qc = ch_qc.mix(KRAKEN2.out.report.map { _meta, f -> f })
 
     def ch_filtered
     if (params.trimmer == 'chopper') {

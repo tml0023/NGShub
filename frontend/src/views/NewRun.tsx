@@ -113,6 +113,8 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
   const annotationBlocked =
     needsAnnotation && !referenceFile && !annotationFile && reference !== '' && annotationReady === false
 
+  const kraken2Blocked = Boolean(platform?.needs_kraken2) && setupStatus?.kraken2_db === false
+
   function onFilesChosen(chosen: FileList | null) {
     const list = chosen ? [...chosen] : []
     setFiles(list)
@@ -157,6 +159,9 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
     }
     if (needsAnnotation && referenceFile && !annotationFile) {
       return setError('A custom reference needs a matching annotation (GTF) uploaded alongside it')
+    }
+    if (kraken2Blocked) {
+      return setError('Run ./scripts/setup_kraken2_db.sh on the server before starting this run')
     }
 
     const body = new FormData()
@@ -453,6 +458,13 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
         <p className="warning">
           {dockerToolsSelected.join(', ')} {dockerToolsSelected.length === 1 ? 'needs' : 'need'} Docker.{' '}
           {setupStatus?.docker.detail ?? 'Docker is not available.'} Or pick a different option above.
+        </p>
+      )}
+
+      {kraken2Blocked && (
+        <p className="warning">
+          This platform needs the Kraken2 viral database, which isn't set up on this server yet.
+          Run <code>./scripts/setup_kraken2_db.sh</code> and try again.
         </p>
       )}
 

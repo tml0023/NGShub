@@ -18,6 +18,7 @@ from .config import (
     ANNOTATION_BY_REFERENCE,
     CORS_ORIGINS,
     KNOWN_SITES_BY_REFERENCE,
+    KRAKEN2_DB_DIR,
     REFERENCES_DIR,
     REPO_ROOT,
     RUNS_DIR,
@@ -129,6 +130,7 @@ def get_setup_status():
         "references": references,
         "known_sites": known_sites,
         "annotations": annotations,
+        "kraken2_db": (KRAKEN2_DB_DIR / "hash.k2d").is_file(),
     }
 
 
@@ -237,6 +239,16 @@ async def create_run(
                 shutil.copyfileobj(primers_file.file, handle, length=1024 * 1024)
         # else: leave unset, letting the pipeline fall back to its bundled default primers.
 
+    kraken2_db_path: Path | None = None
+    if platform_def.get("needs_kraken2"):
+        if not (KRAKEN2_DB_DIR / "hash.k2d").is_file():
+            raise HTTPException(
+                400,
+                "This platform needs the Kraken2 viral database, which isn't set up on this "
+                "server yet. Run scripts/setup_kraken2_db.sh and try again.",
+            )
+        kraken2_db_path = KRAKEN2_DB_DIR
+
     known_sites: list[Path] = []
     if platform == "illumina" and cfg.get("bqsr"):
         known_sites = KNOWN_SITES_BY_REFERENCE.get(ref_name, [])
@@ -300,6 +312,8 @@ async def create_run(
         params["gtf"] = str(annotation_path.resolve())
     if primers_path is not None:
         params["primers"] = str(primers_path.resolve())
+    if kraken2_db_path is not None:
+        params["kraken2_db"] = str(kraken2_db_path.resolve())
     for step in platform_def["steps"]:
         params[step["id"]] = cfg[step["id"]]
     for flag in platform_def["flags"]:

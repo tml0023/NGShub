@@ -1,17 +1,22 @@
 #!/usr/bin/env nextflow
 
-// Targeted influenza surveillance: FASTQ -> IRMA segment assembly ->
-// GenoFLU genotype assignment -> risk-marker screen -> plain-language
-// report. Phase 5 of the project plan ("Influenza surveillance MVP") --
-// the first mode in the pathogen-surveillance family, built on the same
-// ingest/QC/reporting core as the DNA and RNA-seq pipelines.
+// Targeted influenza surveillance: FASTQ -> Kraken2 taxonomic composition
+// (diagnostic) + IRMA segment assembly -> GenoFLU genotype assignment ->
+// risk-marker screen -> plain-language report. Phase 5 of the project plan
+// ("Influenza surveillance MVP") -- the first mode in the
+// pathogen-surveillance family, built on the same ingest/QC/reporting core
+// as the DNA and RNA-seq pipelines.
 //
 // Unlike those pipelines, a sample can legitimately produce *no* assembled
 // segments (no influenza detected, or an incomplete/low-coverage genome) --
 // that's a real, reportable outcome here, not a failure, so the genotype
 // and risk-scoring stages are skipped gracefully rather than erroring.
+// Kraken2 runs regardless, so a zero-segment sample still gets a taxonomic
+// composition result (Files tab, taxonomy/<sample>/) explaining why: mostly
+// unclassified, a different virus, or too little signal to assemble.
 
 include { NANOPLOT; FASTQC; MULTIQC } from '../../modules/qc.nf'
+include { KRAKEN2 } from '../../modules/kraken2.nf'
 include { IRMA_ASSEMBLE } from './modules/irma.nf'
 include { GENOFLU } from './modules/genotype.nf'
 include { RISK_SCORE } from './modules/risk.nf'
@@ -19,7 +24,9 @@ include { SURVEILLANCE_REPORT } from './modules/report.nf'
 
 workflow {
     if (!params.input) { error("--input samplesheet.csv is required") }
+    if (!params.kraken2_db) { error("--kraken2_db <path> is required (see scripts/setup_kraken2_db.sh)") }
 
+    def kraken2_db = file(params.kraken2_db, checkIfExists: true, type: 'dir')
     def marker_table = file("${workflow.projectDir}/assets/risk_markers.tsv", checkIfExists: true)
     def pb2_ref       = file("${workflow.projectDir}/assets/PB2_reference.fasta", checkIfExists: true)
     def pa_ref        = file("${workflow.projectDir}/assets/PA_reference.fasta", checkIfExists: true)
@@ -52,6 +59,12 @@ workflow {
     ch_qc = ch_qc.mix(FASTQC.out.zip)
     NANOPLOT(ch_nanoplot)
     ch_qc = ch_qc.mix(NANOPLOT.out.report)
+
+    // ---- taxonomic composition (diagnostic, not a filter -- runs on every
+    // sample regardless of what IRMA assembles, since a sample that
+    // assembles nothing still benefits from knowing *why*) --------------------
+    KRAKEN2(ch_reads, kraken2_db)
+    ch_qc = ch_qc.mix(KRAKEN2.out.report.map { _meta, f -> f })
 
     // ---- segment assembly + typing ------------------------------------------
     IRMA_ASSEMBLE(ch_reads)

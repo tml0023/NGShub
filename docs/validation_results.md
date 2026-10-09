@@ -117,9 +117,10 @@ dataset, then 100-200 runs from PRJNA1102327)**
   with known literature-standard numbering (BLOSUM62, global alignment)
   and reading marker positions off the alignment, not raw sequence offset.
 
-Not yet done: Kraken2 taxonomic screening, host depletion, Nextclade/UShER
-lineage placement, POD5/Dorado ingest, and the formal sensitivity/
-specificity validation run against the plan's named datasets.
+Not yet done at the time: Kraken2 taxonomic screening, host depletion,
+Nextclade/UShER lineage placement, POD5/Dorado ingest, and the formal
+sensitivity/specificity validation run against the plan's named datasets.
+Kraken2 taxonomic screening has since been added — see below.
 
 ## Targeted influenza surveillance, Oxford Nanopore MVP, first real-data run
 
@@ -172,14 +173,63 @@ caveat as the Illumina MVP above**
   (`influenza_chopper_min_length`) so it can't silently inherit the shared
   `nextflow.config`'s 500bp default for the other platform.
 
-Not yet done: the same list as the Illumina MVP (Kraken2, host depletion,
-Nextclade/UShER, POD5/Dorado ingest, formal sensitivity/specificity
-validation), plus PacBio support for this mode.
+Not yet done at the time: the same list as the Illumina MVP (Kraken2, host
+depletion, Nextclade/UShER, POD5/Dorado ingest, formal sensitivity/
+specificity validation), plus PacBio support for this mode. Kraken2
+taxonomic screening has since been added — see below.
+
+## Taxonomic composition screening (Kraken2), both influenza platforms
+
+**Not a completed target — a new diagnostic capability, correctly working,
+but not the formal ZymoBIOMICS/CAMI false-positive-rate benchmark the plan
+specifies**
+
+- **What it is**: Kraken2 against the prebuilt "Viral" database (RefSeq
+  viral, ~0.5 GB — not the full standard database, which is 100+ GB and
+  impractical on a single dev machine). Runs on every sample unconditionally
+  in both influenza pipelines, regardless of whether IRMA assembles
+  anything, reporting percent unclassified and percent Influenza A virus
+  (NCBI taxid 11320, confirmed present in this DB build's `inspect.txt`
+  before relying on it). This screens composition *among viruses*, not true
+  host-genome depletion — the viral DB has no host genomes in it.
+- **Illumina negative control**: the same synthetic random-sequence negative
+  control used for the IRMA validation above, run through the
+  Kraken2-enabled pipeline. Result: 100% unclassified, 0% Influenza A —
+  exactly the expected result for pure random sequence.
+- **ONT real-data result** (SRR26182435, the same real H5N1 avian MinION
+  sample validated above): **98.48% unclassified, 1.15% Influenza A virus**.
+  This is itself informative, not just a sanity check: it confirms this is
+  raw, unenriched whole-genome sequencing (not a targeted influenza
+  amplicon library), with influenza present at low relative abundance in a
+  mostly non-viral background — yet IRMA still correctly assembled all 8
+  segments from that minority signal. A composition result like this is
+  exactly the kind of context a pass/fail assembly outcome alone can't give:
+  it tells a user *why* a borderline sample looks the way it does.
+- **Both results verified by running the actual Nextflow pipelines
+  end-to-end**, not a standalone Kraken2 invocation outside the app.
+- **A real cross-platform gap caught during design, before any test ran**:
+  the shared Kraken2 process picks single- vs paired-end CLI flags off
+  `meta.single_end`. That key is only ever set by the Illumina influenza
+  pipeline (the one pipeline that supports both read layouts); the ONT
+  pipeline's samplesheet-parsing code, read directly rather than assumed,
+  never set it at all. Left alone, `meta.single_end` would have been `null`
+  for every ONT sample — and a naive `!meta.single_end` "is this paired"
+  check would have evaluated `true` (Groovy's `null` is falsy, so its
+  negation is `true`), silently treating single-end ONT reads as paired.
+  Fixed by setting `single_end: true` explicitly in the ONT pipeline's
+  metadata instead of relying on that inversion.
+
+Not yet done: true host depletion (needs host reference genomes, not just
+the viral DB), Nextclade/UShER lineage placement, POD5/Dorado ingest, and
+the formal ZymoBIOMICS/CAMI false-positive-rate benchmark. The composition
+result also isn't surfaced in the main HTML report yet — Files tab only
+(`taxonomy/<sample>/`), consistent with this app's existing "no dedicated
+viewer for X" pattern for other outputs.
 
 ## Remaining listed targets
 
 Not started: metagenomic/bacterial runtime, AMR gene concordance. Both
-depend on the bacterial/AMR pipeline family (Phase 6 — Flye/metaFlye,
+depend on the bacterial/AMR pipeline family (Phase 7 — Flye/metaFlye,
 AMRFinderPlus, RGI, MOB-suite), which doesn't exist in this codebase yet.
 
 ## Reproducing this

@@ -506,6 +506,7 @@ PLATFORMS = {
         "paired": True,
         "pipeline": "surveillance/influenza/main.nf",
         "needs_reference": False,
+        "needs_kraken2": True,
         "steps": [],
         "callers": {
             "id": "callers",
@@ -538,6 +539,7 @@ PLATFORMS = {
         "paired": False,
         "pipeline": "surveillance/influenza_ont/main.nf",
         "needs_reference": False,
+        "needs_kraken2": True,
         "steps": [
             {
                 "id": "trimmer",
