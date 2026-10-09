@@ -498,6 +498,38 @@ PLATFORMS = {
         },
         "flags": [],
     },
+    "targeted_influenza": {
+        "id": "targeted_influenza",
+        "label": "Targeted Influenza Surveillance",
+        "description": "Paired-end Illumina — influenza A segment assembly, H/N subtype and genotype, "
+                        "and a rule-based spillover risk screen (research use only, not diagnostic)",
+        "paired": True,
+        "pipeline": "surveillance/influenza/main.nf",
+        "needs_reference": False,
+        "steps": [],
+        "callers": {
+            "id": "callers",
+            "label": "Assembly",
+            "multiple": True,
+            "default": ["irma"],
+            "options": [
+                {
+                    "value": "irma",
+                    "label": "IRMA",
+                    "description": "CDC's Iterative Refinement Meta-Assembler; segment-level influenza assembly "
+                                    "and subtype calling",
+                },
+            ],
+        },
+        "sv_callers": {
+            "id": "sv_callers",
+            "label": "",
+            "multiple": True,
+            "default": [],
+            "options": [],
+        },
+        "flags": [],
+    },
 }
 
 VALID = {

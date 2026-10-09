@@ -1,0 +1,5 @@
+gene	ref_position	wildtype_aa	mutant_aa	name	category	significance	citation	evidence_level
+PB2	627	E	K	PB2 E627K	mammalian_adaptation	Enhances polymerase activity and replication efficiency in mammalian cells; the classic marker of avian-to-mammalian host adaptation	Hatta M et al. Science. 2001;293(5536):1840-2	established
+PB2	701	D	N	PB2 D701N	mammalian_adaptation	Enhances mammalian adaptation and transmission; can partially compensate for absence of 627K	Gabriel G et al. PNAS. 2005;102(51):18590-5	established
+PA	38	I	T	PA I38T	antiviral_resistance	Marker of reduced susceptibility to baloxavir marboxil (Xofluza), an endonuclease inhibitor	Jones JC et al. mBio. 2018;9(2):e00430-18	established
+NA	275	H	Y	NA H275Y	antiviral_resistance	Marker of oseltamivir (Tamiflu) resistance (N1 numbering)	CDC/WHO antiviral susceptibility surveillance marker; see Meijer A et al. Antiviral Res. 2014;110:31-41	established

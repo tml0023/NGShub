@@ -169,6 +169,46 @@ differential expression, for the same reason as PacBio.
 | Alignment | `minimap2` (`-x splice`) |
 | Quantification | `Bambu`, `StringTie2 + featureCounts` — one or more |
 
+## Pathogen surveillance
+
+A third mode family, separate from DNA variant calling and RNA-seq: instead
+of calling variants against a reference you choose, this identifies *what
+pathogen is present* and screens it for known risk markers, with no
+reference genome input at all. The first mode — targeted influenza — is an
+MVP, not a finished product; see [Current limitations](#current-limitations)
+for what's not built yet.
+
+### Targeted Influenza Surveillance — `pipeline/surveillance/influenza/main.nf`
+
+Paired-end Illumina only for now. No reference genome or annotation needed
+— IRMA carries its own curated influenza reference modules internally, so
+this platform doesn't show the reference-genome picker at all.
+
+| Stage | Tool |
+| --- | --- |
+| Read QC | FastQC + MultiQC |
+| Segment assembly & subtyping | `IRMA` (CDC's Iterative Refinement Meta-Assembler, FLU module) |
+| Genotype assignment | `GenoFLU` (USDA; H5Nx clade 2.3.4.4b genotyping) |
+| Risk-marker screen | in-house, rule-based (see below) |
+| Report | plain-language HTML summary + technical appendix |
+
+A sample that assembles zero segments (no influenza detected, or an
+incomplete genome) is a real, reportable outcome, not a pipeline error —
+genotyping, risk-scoring, and reporting are skipped for it rather than
+producing a fabricated result.
+
+**Risk-marker screening (v1, rule-based).** Checks the assembled PB2, PA,
+and NA segments against four literature-established markers: PB2 E627K and
+D701N (mammalian adaptation), PA I38T (baloxavir resistance), NA H275Y
+(oseltamivir resistance, N1 numbering). Marker positions are read off a
+BLOSUM62 global alignment against a reference protein with known
+literature-standard numbering, not a raw translated sequence offset — IRMA's
+assembled segments include the untranslated vRNA ends, so position 1 isn't
+the CDS start, and naively scanning for the first long open reading frame
+can land on the wrong start codon (confirmed directly during validation; see
+`docs/validation_results.md`). The result is decision support, not a
+diagnosis — see the disclaimer every generated report carries.
+
 ## Requirements
 
 - macOS or Linux
@@ -377,10 +417,12 @@ pipeline/ont/modules/    ONT-specific processes (reuses generic ones, incl. Nano
 pipeline/rna/illumina/   Illumina RNA-seq workflow (STAR, Salmon, DESeq2)
 pipeline/rna/pacbio/     PacBio Iso-Seq workflow (lima, isoseq, pbmm2, pigeon)
 pipeline/rna/ont/        ONT RNA-seq workflow (minimap2, Bambu/StringTie2)
+pipeline/surveillance/influenza/  Targeted influenza workflow (IRMA, GenoFLU, risk scoring)
 pipeline/nextflow.config Shared: profiles, resource limits, conda/docker config
 backend/app/              FastAPI service: catalog, run submission, job runner, results
 frontend/src/             React UI: platform + run builder, run list, live progress, VCF browser
 scripts/                  setup, dev server, synthetic test data
+docs/                     validation results and methodology
 data/                     runs, uploaded inputs, reference genomes, known-sites (gitignored)
 ```
 
@@ -497,3 +539,15 @@ Per-run resource ceilings live in `pipeline/nextflow.config` (`max_cpus`,
   Iso-Seq, ONT) — isoform-level cross-sample comparison isn't as
   standardized as DESeq2 is for short-read gene counts, so both platforms
   stop at quantification.
+- Pathogen surveillance is an MVP: only targeted influenza (Illumina) exists.
+  No ONT/PacBio support yet despite ONT being the plan's stated priority
+  platform. No Kraken2 taxonomic screening or host depletion — a sample is
+  assumed to already be enriched for influenza, not raw metagenomic input.
+  No Nextclade/UShER lineage placement. No POD5/Dorado basecalling ingest —
+  FASTQ only. The risk-marker table has 4 markers (PB2 E627K/D701N, PA I38T,
+  NA H275Y); the plan's broader "receptor-binding changes in HA" category
+  isn't implemented. No dedicated viewer beyond the one generated HTML
+  report per sample.
+- Every surveillance report is a screening result, not a diagnosis — see the
+  disclaimer rendered into each one. No CLIA/CAP pathway exists or is
+  planned without a separate, deliberate validation and regulatory effort.

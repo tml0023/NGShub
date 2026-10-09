@@ -1,11 +1,10 @@
 # Validation results
 
 Real external-benchmark validation, run against the project plan's
-[performance targets](../NGShub_ProjectPlan2.pdf) (Oct 2026 plan). Three of
-the four targets that map to pipelines which actually exist today are met;
-the remaining listed targets depend on the pathogen-surveillance pipeline
-family, which is not built yet (see the plan's development guide, Phases
-5-7) and isn't addressed here.
+performance targets (Oct 2026 merged plan). Three of the four targets that
+map to pipelines which existed at the time are met. The pathogen
+surveillance family (Phase 5) has since had its first real-data validation
+too — see below.
 
 ## GIAB concordance (SNP / indel), Illumina pipeline
 
@@ -81,17 +80,52 @@ insufficient for full-genome BWA-MEM2/DragMap indexing (see the README).
 A real full-hg38 number needs an actual full-genome run on adequate
 hardware, which hasn't been done.
 
+## Targeted influenza surveillance (Phase 5 MVP), first real-data run
+
+**Not a completed target — a first correctness check on real data, not yet
+the formal validation run the plan specifies (82-sample inoculation
+dataset, then 100-200 runs from PRJNA1102327)**
+
+- **Sample**: SRR40955955, real USDA-NVSL Illumina WGS of Influenza A, from
+  the exact BioProject the plan names (PRJNA1102327), pulled live via
+  `prefetch`/`fasterq-dump`. ~512K read pairs, no subsampling.
+- **Pipeline**: `pipeline/surveillance/influenza/main.nf` — FastQC → IRMA
+  (segment assembly + subtyping) → GenoFLU (genotype assignment) →
+  rule-based risk-marker screen → plain-language HTML report.
+- **Result**: IRMA correctly assembled all 8 segments and called the
+  subtype **H5N1** (HA: H5, NA: N1). GenoFLU assigned genotype **B3.13** —
+  the actual documented genotype of the 2024 US dairy cattle H5N1
+  outbreak, and the specific genotype the plan itself names as a target
+  ("check that cattle B3.13 and D1.1 samples land in the right clades").
+  Risk screen: all 4 markers (PB2 E627K, PB2 D701N, PA I38T, NA H275Y)
+  correctly read as wildtype — consistent with published reporting that
+  this lineage is predominantly avian-adapted at these positions — giving
+  an overall "low" risk call.
+- **Negative control**: a synthetic 500-read-pair random-sequence sample
+  produced zero assembled segments and correctly stopped there — no
+  genotype, no risk score, no fabricated report. Confirms the pipeline
+  doesn't manufacture a result when there's no real signal, though this is
+  a synthetic negative, not the ZymoBIOMICS/CAMI benchmark the plan
+  specifies for the real false-positive-rate target.
+- **A correctness issue found and fixed along the way**: risk-marker amino
+  acid positions can't be read off a raw translated open reading frame.
+  IRMA's assembled segments include the vRNA UTRs, so position 1 isn't the
+  CDS start, and naively picking "the first ATG that gives a long ORF"
+  found the *wrong* start codon (10 residues downstream of the true one) —
+  confirmed directly by comparing against a reference protein sequence.
+  Fixed by aligning each segment's translation against a reference protein
+  with known literature-standard numbering (BLOSUM62, global alignment)
+  and reading marker positions off the alignment, not raw sequence offset.
+
+Not yet done: Kraken2 taxonomic screening, host depletion, Nextclade/UShER
+lineage placement, POD5/Dorado ingest, and the formal sensitivity/
+specificity validation run against the plan's named datasets.
+
 ## Remaining listed targets
 
-Not started, and not attempted here: targeted-influenza runtime,
-metagenomic/bacterial runtime, influenza detection sensitivity, consensus
-genome identity, AMR gene concordance, false-positive pathogen calls. All
-six depend on the pathogen-surveillance pipeline family (Kraken2, IRMA,
-GenoFLU, AMRFinderPlus, RGI, MOB-suite, Nextclade, UShER, the risk-scoring
-engine, the report builder) described in the plan's Phases 5-7, none of
-which exist in this codebase yet. Completing them means building that
-pipeline family first — a separate, multi-week undertaking, not a
-validation pass against existing code.
+Not started: metagenomic/bacterial runtime, AMR gene concordance. Both
+depend on the bacterial/AMR pipeline family (Phase 6 — Flye/metaFlye,
+AMRFinderPlus, RGI, MOB-suite), which doesn't exist in this codebase yet.
 
 ## Reproducing this
 

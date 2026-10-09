@@ -186,20 +186,24 @@ async def create_run(
             shutil.copyfileobj(upload.file, handle, length=1024 * 1024)
         stored[filename] = destination
 
-    if reference_file is not None and reference_file.filename:
-        ref_name = safe_name(reference_file.filename, "reference filename")
-        if not ref_name.lower().endswith(FASTA_SUFFIXES):
-            raise HTTPException(400, "Reference must be an uncompressed FASTA file")
-        reference_path = inputs / ref_name
-        with open(reference_path, "wb") as handle:
-            shutil.copyfileobj(reference_file.file, handle, length=1024 * 1024)
-    else:
-        ref_name = cfg.get("reference")
-        if not ref_name:
-            raise HTTPException(400, "A reference genome is required")
-        reference_path = REFERENCES_DIR / safe_name(ref_name, "reference")
-        if not reference_path.is_file():
-            raise HTTPException(400, f"Unknown reference genome: {ref_name}")
+    needs_reference = platform_def.get("needs_reference", True)
+    reference_path: Path | None = None
+    ref_name = None
+    if needs_reference:
+        if reference_file is not None and reference_file.filename:
+            ref_name = safe_name(reference_file.filename, "reference filename")
+            if not ref_name.lower().endswith(FASTA_SUFFIXES):
+                raise HTTPException(400, "Reference must be an uncompressed FASTA file")
+            reference_path = inputs / ref_name
+            with open(reference_path, "wb") as handle:
+                shutil.copyfileobj(reference_file.file, handle, length=1024 * 1024)
+        else:
+            ref_name = cfg.get("reference")
+            if not ref_name:
+                raise HTTPException(400, "A reference genome is required")
+            reference_path = REFERENCES_DIR / safe_name(ref_name, "reference")
+            if not reference_path.is_file():
+                raise HTTPException(400, f"Unknown reference genome: {ref_name}")
 
     annotation_path: Path | None = None
     if platform_def.get("needs_annotation"):
@@ -286,11 +290,12 @@ async def create_run(
 
     params = {
         "input": str(samplesheet),
-        "fasta": str(reference_path.resolve()),
         "outdir": str(directory / "results"),
         "callers": ",".join(callers),
         "sv_callers": ",".join(sv_callers),
     }
+    if reference_path is not None:
+        params["fasta"] = str(reference_path.resolve())
     if annotation_path is not None:
         params["gtf"] = str(annotation_path.resolve())
     if primers_path is not None:

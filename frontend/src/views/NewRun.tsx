@@ -149,7 +149,8 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
 
     if (!platform) return
     if (samples.length === 0) return setError('Upload at least one FASTQ file')
-    if (!reference && !referenceFile) return setError('Choose or upload a reference genome')
+    const needsReference = platform.needs_reference !== false
+    if (needsReference && !reference && !referenceFile) return setError('Choose or upload a reference genome')
     if (callers.length === 0) return setError('Select at least one variant caller')
     if (needsAnnotation && !referenceFile && !annotationFile && annotationReady === false) {
       return setError('This reference has no matching annotation (GTF) — upload one, or pick a different reference')
@@ -272,30 +273,34 @@ export function NewRun({ onCreated }: { onCreated: (id: string) => void }) {
           </p>
         )}
 
-        <label className="field">
-          <span>Reference genome</span>
-          <select
-            value={reference}
-            onChange={(e) => setReference(e.target.value)}
-            disabled={referenceFile !== null}
-          >
-            <option value="">Select a reference…</option>
-            {references.map((ref) => (
-              <option key={ref.name} value={ref.name}>
-                {ref.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {platform.needs_reference !== false && (
+          <>
+            <label className="field">
+              <span>Reference genome</span>
+              <select
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                disabled={referenceFile !== null}
+              >
+                <option value="">Select a reference…</option>
+                {references.map((ref) => (
+                  <option key={ref.name} value={ref.name}>
+                    {ref.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <label className="field">
-          <span>…or upload a FASTA</span>
-          <input
-            type="file"
-            accept=".fa,.fasta,.fna"
-            onChange={(e) => setReferenceFile(e.target.files?.[0] ?? null)}
-          />
-        </label>
+            <label className="field">
+              <span>…or upload a FASTA</span>
+              <input
+                type="file"
+                accept=".fa,.fasta,.fna"
+                onChange={(e) => setReferenceFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          </>
+        )}
 
         {needsAnnotation && (
           <label className="field">

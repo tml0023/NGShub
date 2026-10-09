@@ -22,6 +22,7 @@ export interface Platform {
   sv_callers: { id: string; label: string; multiple: boolean; default: string[]; options: Option[] }
   flags: { id: string; label: string; default: boolean; description: string; requires_known_sites?: boolean }[]
   needs_annotation?: boolean
+  needs_reference?: boolean
   needs_condition?: boolean
   needs_primers?: boolean
   always_requires_docker?: boolean
