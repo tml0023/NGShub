@@ -12,6 +12,15 @@ suppressMessages({
 })
 
 samples <- read.csv(samplesheet_path, stringsAsFactors = FALSE)
+
+# No "condition" column at all is a real case, not just a hypothetical: the
+# backend always adds one for illumina_rna runs, but a samplesheet written
+# by hand for standalone CLI use (see README) may not have it.
+if (!"condition" %in% names(samples)) {
+  cat("No condition column in samplesheet; skipping differential expression.\n")
+  quit(status = 0)
+}
+
 samples$condition <- trimws(samples$condition)
 samples <- samples[!is.na(samples$condition) & samples$condition != "", ]
 
